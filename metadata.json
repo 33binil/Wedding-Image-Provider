@@ -1,0 +1,6 @@
+{
+  "name": "Wedding AI Photo Finder",
+  "description": "The premier platform for wedding photographers to organize events, share QR codes with guests, and prepare galleries.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
