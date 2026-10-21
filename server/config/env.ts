@@ -4,7 +4,17 @@ import { z } from 'zod';
 dotenv.config();
 
 const envSchema = z.object({
-  PORT: z.coerce.number().default(3000),
+  PORT: z.preprocess((val) => {
+    // If DEFAULT_APP_PORT is provided, use it (typically 3000)
+    if (process.env.DEFAULT_APP_PORT) {
+      return Number(process.env.DEFAULT_APP_PORT);
+    }
+    // When PORT is 8080 (reserved for nginx/ingress), app must bind to internal 3000
+    if (val === '8080' || val === 8080) {
+      return 3000;
+    }
+    return val || 3000;
+  }, z.coerce.number().default(3000)),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   CLIENT_URL: z.string().default('http://localhost:3000'),
   MONGODB_URI: z.string().optional().default(''),

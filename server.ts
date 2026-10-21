@@ -17,8 +17,8 @@ function initDatabase(): Promise<void> {
       await connectDB();
       await bootstrapSuperAdmin();
     })().catch((err) => {
-      console.error('Fatal Database Initialization Error:', err);
-      process.exit(1);
+      console.error('Database Initialization Warning/Error:', err);
+      throw err;
     });
   }
   return dbInitPromise;
@@ -31,12 +31,19 @@ async function startServer() {
   const app = createApp();
 
   // Middleware ensuring database is ready before processing API routes
-  app.use('/api', async (_req, _res, next) => {
+  app.use('/api', async (req, res, next) => {
+    if (req.path === '/health') {
+      return next();
+    }
     try {
       await dbPromise;
       next();
     } catch (err) {
-      next(err);
+      console.error('API request waiting on database error:', err);
+      res.status(503).json({
+        success: false,
+        message: 'Database service is starting up or temporarily unavailable. Please try again shortly.',
+      });
     }
   });
 
@@ -65,8 +72,12 @@ async function startServer() {
   app.use('/api', notFoundHandler);
   app.use(errorHandler);
 
-  const server = app.listen(env.PORT, '0.0.0.0', () => {
-    console.log(`✨ Penta Prizm · Wedding AI Photo Finder running on http://0.0.0.0:${env.PORT} [${env.NODE_ENV}]`);
+  const portArgIndex = process.argv.indexOf('--port');
+  const cliPort = portArgIndex !== -1 && process.argv[portArgIndex + 1] ? Number(process.argv[portArgIndex + 1]) : null;
+  const targetPort = cliPort || (process.env.DEFAULT_APP_PORT ? Number(process.env.DEFAULT_APP_PORT) : null) || (env.PORT !== 8080 ? env.PORT : 3000);
+
+  const server = app.listen(targetPort, '0.0.0.0', () => {
+    console.log(`✨ Penta Prizm · Wedding AI Photo Finder running on http://0.0.0.0:${targetPort} [${env.NODE_ENV}]`);
   });
 
   // Graceful shutdown

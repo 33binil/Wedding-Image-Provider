@@ -16,11 +16,14 @@ export function createApp(): Express {
   // Trust first proxy (Cloud Run / AI Studio preview environment)
   app.set('trust proxy', 1);
 
-  // Basic security headers
+  // Basic security headers configured for AI Studio iframe preview
   app.use(
     helmet({
       contentSecurityPolicy: false,
       crossOriginEmbedderPolicy: false,
+      crossOriginResourcePolicy: false,
+      crossOriginOpenerPolicy: false,
+      xFrameOptions: false,
     })
   );
 

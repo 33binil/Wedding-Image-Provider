@@ -55,6 +55,33 @@ export function errorHandler(
     return;
   }
 
+  // Database offline / connection errors handling
+  if (
+    err.name === 'MongooseError' ||
+    err.name === 'MongoNetworkError' ||
+    err.name === 'MongoServerSelectionError' ||
+    (typeof err.message === 'string' &&
+      (err.message.includes('buffering timed out') || err.message.includes('ECONNREFUSED')))
+  ) {
+    console.warn('[AI Studio] Database offline — returning graceful fallback');
+    if (_req.method === 'GET') {
+      const isPlural = _req.path.endsWith('s') || _req.path.endsWith('s/');
+      res.status(200).json({
+        success: true,
+        data: isPlural ? [] : null,
+        offline: true,
+        message: 'Database is currently offline',
+      });
+      return;
+    }
+    res.status(503).json({
+      success: false,
+      error: 'DATABASE_OFFLINE',
+      message: 'Service temporarily unavailable (database offline)',
+    });
+    return;
+  }
+
   console.error('Unhandled Server Error:', err);
   res.status(err.status || 500).json({
     success: false,

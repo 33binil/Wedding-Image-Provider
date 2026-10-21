@@ -37,9 +37,10 @@ export async function connectDB(): Promise<void> {
         return;
       } catch (fallbackErr) {
         console.error('Failed to start fallback MongoDB:', fallbackErr);
+        throw fallbackErr;
       }
     }
-    process.exit(1);
+    throw error;
   }
 }
 
