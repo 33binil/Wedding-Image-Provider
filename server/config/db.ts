@@ -8,13 +8,18 @@ export async function connectDB(): Promise<void> {
     let mongoUri = env.MONGODB_URI;
 
     if (!mongoUri) {
-      console.log('ℹ️ MONGODB_URI not provided in .env. Initializing embedded MongoDB engine for development...');
+      if (env.NODE_ENV === 'production') {
+        throw new Error(
+          'FATAL: MONGODB_URI environment variable is required in production. Embedded in-memory MongoDB is strictly disabled in production.'
+        );
+      }
+      console.log('ℹ️ MONGODB_URI not provided. Initializing embedded MongoDB engine for local development...');
       const { MongoMemoryServer } = await import('mongodb-memory-server');
       mongodInstance = await MongoMemoryServer.create();
       mongoUri = mongodInstance.getUri();
       console.log('✅ Embedded MongoDB started at:', mongoUri);
     } else {
-      console.log('Connecting to MongoDB Atlas at configured URI...');
+      console.log('Connecting to persistent MongoDB at configured URI...');
     }
 
     mongoose.set('strictQuery', true);
@@ -25,7 +30,14 @@ export async function connectDB(): Promise<void> {
     console.log('✨ MongoDB Connected Successfully:', mongoose.connection.host);
   } catch (error) {
     console.error('❌ MongoDB Connection Error:', error);
-    // If Atlas failed and we didn't try embedded yet, fallback to embedded Mongo
+
+    // In production, never fall back to ephemeral in-memory database
+    if (env.NODE_ENV === 'production') {
+      console.error('Production database connection failed. Halting process to protect data persistence.');
+      throw error;
+    }
+
+    // In non-production development, fallback to embedded Mongo if Atlas is unreachable
     if (!mongodInstance) {
       console.log('Falling back to local development MongoDB...');
       try {

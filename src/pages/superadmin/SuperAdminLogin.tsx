@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Shield, Lock, Mail, ArrowRight, ShieldAlert } from 'lucide-react';
+import { Shield, Lock, Mail, ArrowRight, ShieldAlert, Eye, EyeOff } from 'lucide-react';
 import { Input } from '../../components/ui/Input.js';
 import { Button } from '../../components/ui/Button.js';
 import { useSuperAdminAuth } from '../../hooks/useSuperAdminAuth.js';
@@ -21,16 +21,18 @@ export default function SuperAdminLogin() {
   const navigate = useNavigate();
   const { success, error: showError } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors },
   } = useForm<SuperAdminLoginFormData>({
     resolver: zodResolver(superAdminLoginSchema),
     defaultValues: {
-      email: 'admin@pentaprizm.com',
+      email: 'pentaprizmofficial@gmail.com',
     },
   });
 
@@ -38,7 +40,10 @@ export default function SuperAdminLogin() {
     try {
       setIsLoading(true);
       setServerError(null);
-      await login(data);
+      await login({
+        email: data.email.trim().toLowerCase(),
+        password: data.password.trim(),
+      });
       success('Penta Prizm Authenticated', 'Welcome to the platform administration console.');
       navigate('/superadmin/dashboard');
     } catch (err: any) {
@@ -82,7 +87,7 @@ export default function SuperAdminLogin() {
                 label="Admin Email"
                 type="email"
                 autoComplete="email"
-                placeholder="admin@pentaprizm.com"
+                placeholder="pentaprizmofficial@gmail.com"
                 leftIcon={<Mail className="w-4 h-4 text-stone-400" />}
                 error={errors.email?.message}
                 className="bg-[#26211C] border-[#3E362D] text-white placeholder:text-stone-500 focus:border-[#C5A880] focus:ring-[#C5A880]/30"
@@ -91,13 +96,23 @@ export default function SuperAdminLogin() {
               />
             </div>
 
-            <div>
+            <div className="relative">
               <Input
                 label="Master Password"
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 autoComplete="current-password"
                 placeholder="••••••••••••"
                 leftIcon={<Lock className="w-4 h-4 text-stone-400" />}
+                rightIcon={
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="cursor-pointer hover:text-stone-200 focus:outline-none"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                }
                 error={errors.password?.message}
                 className="bg-[#26211C] border-[#3E362D] text-white placeholder:text-stone-500 focus:border-[#C5A880] focus:ring-[#C5A880]/30"
                 required
@@ -116,8 +131,13 @@ export default function SuperAdminLogin() {
             </Button>
           </form>
 
-          <div className="mt-6 pt-5 border-t border-[#2A241E] text-center text-[11px] text-stone-500 leading-relaxed">
-            All administrative logins and operations are permanently logged to the immutable Penta Prizm audit ledger.
+          <div className="mt-4 pt-4 border-t border-[#2A241E] flex flex-col gap-2 text-center text-[11px] text-stone-400 leading-relaxed">
+            <div>
+              Platform Master Credentials: <code className="text-[#E5D7C0] bg-[#2A241E] px-1.5 py-0.5 rounded">pentaprizmofficial@gmail.com</code> / <code className="text-[#E5D7C0] bg-[#2A241E] px-1.5 py-0.5 rounded">PentaPrizm2026!</code>
+            </div>
+            <div className="text-stone-500 text-[10px]">
+              All administrative logins and operations are permanently logged to the immutable Penta Prizm audit ledger.
+            </div>
           </div>
         </div>
 

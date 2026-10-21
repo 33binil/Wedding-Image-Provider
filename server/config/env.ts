@@ -21,8 +21,24 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(8).default('dev-wedding-ai-jwt-secret-key-32-chars-long'),
   COOKIE_NAME: z.string().default('wedding_auth_token'),
   SUPERADMIN_COOKIE_NAME: z.string().default('penta_superadmin_token'),
-  SUPERADMIN_EMAIL: z.string().trim().toLowerCase().email().default('admin@pentaprizm.com'),
-  SUPERADMIN_DEFAULT_PASSWORD: z.string().min(8).default('PentaPrizm2026!'),
+  SUPERADMIN_EMAIL: z.preprocess((val) => {
+    // Override legacy default from container environment
+    if (!val || typeof val !== 'string' || val.trim().toLowerCase() === 'admin@pentaprizm.com') {
+      return 'pentaprizmofficial@gmail.com';
+    }
+    return val.trim().toLowerCase();
+  }, z.string().email().default('pentaprizmofficial@gmail.com')),
+  SUPERADMIN_DEFAULT_PASSWORD: z.preprocess((val) => {
+    const raw = process.env.SUPERADMIN_PASSWORD || val;
+    if (typeof raw === 'string') {
+      const cleaned = raw.trim().replace(/^["']|["']$/g, '');
+      if (cleaned.length >= 8) return cleaned;
+    }
+    return 'PentaPrizm2026!';
+  }, z.string().min(8)).default('PentaPrizm2026!'),
+  SUPERADMIN_RESET_PASSWORD: z.preprocess((val) => {
+    return val === true || val === 'true' || process.env.RESET_SUPERADMIN === 'true';
+  }, z.boolean()).default(false),
   GOOGLE_CLIENT_ID: z.string().optional().default(''),
   GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
   GOOGLE_REDIRECT_URI: z.string().default('http://localhost:3000/api/integrations/google-drive/callback'),

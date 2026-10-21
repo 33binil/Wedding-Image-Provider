@@ -37,7 +37,6 @@ const PhotographerSchema = new Schema<IPhotographer>(
       unique: true,
       lowercase: true,
       trim: true,
-      index: true,
     },
     passwordHash: {
       type: String,
@@ -95,6 +94,5 @@ const PhotographerSchema = new Schema<IPhotographer>(
 
 // Indexes
 PhotographerSchema.index({ role: 1, status: 1 });
-PhotographerSchema.index({ email: 1 }, { unique: true });
 
 export const Photographer = mongoose.model<IPhotographer>('Photographer', PhotographerSchema);

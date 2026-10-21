@@ -74,7 +74,7 @@ export default function Dashboard() {
           <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
           <div className="flex-1 text-xs text-rose-900 leading-relaxed">
             <span className="font-semibold block text-sm text-rose-950">Studio Account Suspended</span>
-            Your studio account has been suspended by Penta Prizm administrators. Creating new events and editing existing records is temporarily restricted. Please contact <a href="mailto:admin@pentaprizm.com" className="font-semibold underline">admin@pentaprizm.com</a> for assistance.
+            Your studio account has been suspended by Penta Prizm administrators. Creating new events and editing existing records is temporarily restricted. Please contact <a href="mailto:pentaprizmofficial@gmail.com" className="font-semibold underline">pentaprizmofficial@gmail.com</a> for assistance.
           </div>
         </div>
       )}

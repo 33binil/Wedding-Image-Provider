@@ -54,6 +54,16 @@ export async function register(
     const validatedData = registerSchema.parse(req.body);
     const normalizedEmail = validatedData.email;
 
+    // Disallow photographer registration using the designated superadmin identity
+    if (normalizedEmail === env.SUPERADMIN_EMAIL.toLowerCase().trim()) {
+      res.status(400).json({
+        success: false,
+        error: 'RESERVED_EMAIL',
+        message: 'This email address is reserved for platform administration and cannot be registered as a photographer.',
+      });
+      return;
+    }
+
     // 1. Check if an account already exists
     const existingUser = await Photographer.findOne({ email: normalizedEmail });
     if (existingUser) {
