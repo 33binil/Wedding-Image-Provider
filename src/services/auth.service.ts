@@ -6,7 +6,6 @@ export interface RegisterPayload {
   email: string;
   password: string;
   confirmPassword: string;
-  activationCode: string;
 }
 
 export interface LoginPayload {
@@ -14,19 +13,36 @@ export interface LoginPayload {
   password: string;
 }
 
+export interface LoginInitialResponse {
+  preAuthToken: string;
+  email: string;
+  requiresOtp: boolean;
+}
+
+export interface VerifyOtpPayload {
+  preAuthToken: string;
+  otp: string;
+}
+
 export interface AuthResponse {
   user: User;
   access?: AccessControlResult;
+  token?: string;
 }
 
 export const authService = {
-  async register(payload: RegisterPayload): Promise<AuthResponse> {
+  async register(payload: RegisterPayload): Promise<{ user: User }> {
     const res = await api.post('/auth/register', payload);
     return res.data.data;
   },
 
-  async login(payload: LoginPayload): Promise<AuthResponse> {
+  async login(payload: LoginPayload): Promise<LoginInitialResponse> {
     const res = await api.post('/auth/login', payload);
+    return res.data.data;
+  },
+
+  async verifyLoginOtp(payload: VerifyOtpPayload): Promise<AuthResponse> {
+    const res = await api.post('/auth/verify-login-otp', payload);
     return res.data.data;
   },
 

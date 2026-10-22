@@ -10,6 +10,16 @@ export interface IGoogleDrive {
   connectedAt?: Date;
 }
 
+export interface ILoginOtp {
+  codeHash?: string;
+  expiresAt?: Date;
+  failedAttempts: number;
+  isUsed: boolean;
+  usedAt?: Date;
+  generatedAt?: Date;
+  generatedBy?: mongoose.Types.ObjectId;
+}
+
 export interface IPhotographer extends Document {
   name: string;
   email: string;
@@ -19,6 +29,7 @@ export interface IPhotographer extends Document {
   trialStartAt?: Date;
   trialExpiresAt?: Date;
   googleDrive: IGoogleDrive;
+  loginOtp?: ILoginOtp;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -51,7 +62,7 @@ const PhotographerSchema = new Schema<IPhotographer>(
     status: {
       type: String,
       enum: ['ACTIVE', 'SUSPENDED', 'PENDING'],
-      default: 'ACTIVE',
+      default: 'PENDING',
       index: true,
     },
     trialStartAt: {
@@ -77,12 +88,40 @@ const PhotographerSchema = new Schema<IPhotographer>(
         type: Date,
       },
     },
+    loginOtp: {
+      codeHash: {
+        type: String,
+      },
+      expiresAt: {
+        type: Date,
+        index: true,
+      },
+      failedAttempts: {
+        type: Number,
+        default: 0,
+      },
+      isUsed: {
+        type: Boolean,
+        default: false,
+      },
+      usedAt: {
+        type: Date,
+      },
+      generatedAt: {
+        type: Date,
+      },
+      generatedBy: {
+        type: Schema.Types.ObjectId,
+        ref: 'Photographer',
+      },
+    },
   },
   {
     timestamps: true,
     toJSON: {
       transform(_doc, ret) {
         delete (ret as any).passwordHash;
+        delete (ret as any).loginOtp;
         if (ret.googleDrive) {
           delete (ret.googleDrive as any).refreshTokenEncrypted;
         }
@@ -94,5 +133,6 @@ const PhotographerSchema = new Schema<IPhotographer>(
 
 // Indexes
 PhotographerSchema.index({ role: 1, status: 1 });
+PhotographerSchema.index({ 'loginOtp.expiresAt': 1 });
 
 export const Photographer = mongoose.model<IPhotographer>('Photographer', PhotographerSchema);

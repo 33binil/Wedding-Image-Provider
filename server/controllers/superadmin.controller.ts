@@ -499,11 +499,39 @@ export async function listPhotographers(
     const list = photographers.map((p) => {
       const pJson = p.toJSON();
       const access = evaluatePhotographerAccess(p);
+
+      let otpStatus: 'NOT_GENERATED' | 'PENDING' | 'EXPIRED' | 'USED' | 'LOCKED' = 'NOT_GENERATED';
+      let otpExpiresAt: Date | undefined;
+      let otpGeneratedAt: Date | undefined;
+      let otpFailedAttempts = 0;
+
+      if (p.loginOtp && p.loginOtp.codeHash) {
+        otpExpiresAt = p.loginOtp.expiresAt;
+        otpGeneratedAt = p.loginOtp.generatedAt;
+        otpFailedAttempts = p.loginOtp.failedAttempts || 0;
+
+        if (p.loginOtp.isUsed) {
+          otpStatus = 'USED';
+        } else if (p.loginOtp.failedAttempts >= 5) {
+          otpStatus = 'LOCKED';
+        } else if (p.loginOtp.expiresAt && new Date() > new Date(p.loginOtp.expiresAt)) {
+          otpStatus = 'EXPIRED';
+        } else {
+          otpStatus = 'PENDING';
+        }
+      }
+
       return {
         ...pJson,
         weddingsCount: countMap.get(p._id.toString()) || 0,
         trialDaysRemaining: calculateDaysRemaining(p.trialExpiresAt),
         isTrialExpired: access.isTrialExpired,
+        otpInfo: {
+          status: otpStatus,
+          expiresAt: otpExpiresAt,
+          generatedAt: otpGeneratedAt,
+          failedAttempts: otpFailedAttempts,
+        },
       };
     });
 
@@ -550,6 +578,27 @@ export async function getPhotographerById(
 
     const access = evaluatePhotographerAccess(photographer);
 
+    let otpStatus: 'NOT_GENERATED' | 'PENDING' | 'EXPIRED' | 'USED' | 'LOCKED' = 'NOT_GENERATED';
+    let otpExpiresAt: Date | undefined;
+    let otpGeneratedAt: Date | undefined;
+    let otpFailedAttempts = 0;
+
+    if (photographer.loginOtp && photographer.loginOtp.codeHash) {
+      otpExpiresAt = photographer.loginOtp.expiresAt;
+      otpGeneratedAt = photographer.loginOtp.generatedAt;
+      otpFailedAttempts = photographer.loginOtp.failedAttempts || 0;
+
+      if (photographer.loginOtp.isUsed) {
+        otpStatus = 'USED';
+      } else if (photographer.loginOtp.failedAttempts >= 5) {
+        otpStatus = 'LOCKED';
+      } else if (photographer.loginOtp.expiresAt && new Date() > new Date(photographer.loginOtp.expiresAt)) {
+        otpStatus = 'EXPIRED';
+      } else {
+        otpStatus = 'PENDING';
+      }
+    }
+
     res.status(200).json({
       success: true,
       data: {
@@ -558,8 +607,92 @@ export async function getPhotographerById(
           weddingsCount,
           trialDaysRemaining: calculateDaysRemaining(photographer.trialExpiresAt),
           access,
+          otpInfo: {
+            status: otpStatus,
+            expiresAt: otpExpiresAt,
+            generatedAt: otpGeneratedAt,
+            failedAttempts: otpFailedAttempts,
+          },
         },
         recentWeddings: events,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/**
+ * Super Admin-controlled Login OTP generation / regeneration.
+ * Generates a cryptographically random 6-digit OTP, stores only bcrypt hash,
+ * sets a 5-minute expiry, and provides the plaintext code ONCE in the response.
+ */
+export async function generatePhotographerLoginOtp(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({ success: false, error: 'INVALID_ID', message: 'Invalid photographer ID' });
+      return;
+    }
+
+    const photographer = await Photographer.findOne({ _id: id, role: 'PHOTOGRAPHER' });
+    if (!photographer) {
+      res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Photographer account not found' });
+      return;
+    }
+
+    // Cryptographically secure 6-digit random code (100000 - 999999)
+    const codeNumber = crypto.randomInt(100000, 1000000);
+    const otp = codeNumber.toString();
+
+    // Hash with bcryptjs (10 salt rounds)
+    const salt = await bcrypt.genSalt(10);
+    const codeHash = await bcrypt.hash(otp, salt);
+
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5-minute validity window
+
+    photographer.loginOtp = {
+      codeHash,
+      expiresAt,
+      failedAttempts: 0,
+      isUsed: false,
+      generatedAt: new Date(),
+      generatedBy: req.superAdmin!._id,
+    };
+
+    await photographer.save();
+
+    await logAdminAction({
+      adminId: req.superAdmin!._id,
+      adminEmail: req.superAdmin!.email,
+      action: 'LOGIN_OTP_GENERATED',
+      targetType: 'PHOTOGRAPHER',
+      targetId: photographer._id.toString(),
+      ipAddress: req.ip,
+      metadata: {
+        photographerId: photographer._id.toString(),
+        email: photographer.email,
+        studioName: photographer.name,
+        expiresAt,
+      },
+    });
+
+    // Provide the OTP ONCE in this response for the Super Admin to reveal and communicate.
+    // The plaintext OTP is never logged or stored in the database.
+    res.status(200).json({
+      success: true,
+      message: 'Login OTP generated successfully',
+      data: {
+        otp,
+        expiresAt,
+        photographerId: photographer._id.toString(),
+        email: photographer.email,
+        studioName: photographer.name,
       },
     });
   } catch (error) {

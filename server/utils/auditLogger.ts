@@ -19,6 +19,8 @@ export async function logAdminAction(params: AuditLogParams): Promise<void> {
     delete safeMetadata.passwordHash;
     delete safeMetadata.code;
     delete safeMetadata.codeHash;
+    delete safeMetadata.otp;
+    delete safeMetadata.otpHash;
     delete safeMetadata.token;
     delete safeMetadata.refreshToken;
 

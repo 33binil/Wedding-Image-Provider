@@ -1,14 +1,21 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User, AccessControlResult } from '../types/index.js';
-import { authService, LoginPayload, RegisterPayload } from '../services/auth.service.js';
+import {
+  authService,
+  LoginPayload,
+  RegisterPayload,
+  LoginInitialResponse,
+  VerifyOtpPayload,
+} from '../services/auth.service.js';
 
 interface AuthContextType {
   user: User | null;
   access: AccessControlResult | null;
   loading: boolean;
   isAuthenticated: boolean;
-  login: (payload: LoginPayload) => Promise<User>;
-  register: (payload: RegisterPayload) => Promise<User>;
+  login: (payload: LoginPayload) => Promise<LoginInitialResponse>;
+  verifyLoginOtp: (payload: VerifyOtpPayload) => Promise<User>;
+  register: (payload: RegisterPayload) => Promise<{ user: User }>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -37,18 +44,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     refreshUser();
   }, [refreshUser]);
 
-  const login = async (payload: LoginPayload): Promise<User> => {
-    const data = await authService.login(payload);
+  const login = async (payload: LoginPayload): Promise<LoginInitialResponse> => {
+    return await authService.login(payload);
+  };
+
+  const verifyLoginOtp = async (payload: VerifyOtpPayload): Promise<User> => {
+    const data = await authService.verifyLoginOtp(payload);
     setUser(data.user);
     setAccess(data.access || null);
     return data.user;
   };
 
-  const register = async (payload: RegisterPayload): Promise<User> => {
-    const data = await authService.register(payload);
-    setUser(data.user);
-    setAccess(data.access || null);
-    return data.user;
+  const register = async (payload: RegisterPayload): Promise<{ user: User }> => {
+    return await authService.register(payload);
   };
 
   const logout = async (): Promise<void> => {
@@ -68,6 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         isAuthenticated: Boolean(user),
         login,
+        verifyLoginOtp,
         register,
         logout,
         refreshUser,

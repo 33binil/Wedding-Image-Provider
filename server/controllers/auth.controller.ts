@@ -1,10 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
-import mongoose from 'mongoose';
 import { z } from 'zod';
 import { Photographer } from '../models/Photographer.js';
 import { Invitation } from '../models/Invitation.js';
-import { signToken } from '../utils/tokens.js';
+import { signToken, signPreAuthToken, verifyPreAuthToken } from '../utils/tokens.js';
 import { env } from '../config/env.js';
 import { AuthenticatedRequest } from '../middleware/auth.middleware.js';
 import { evaluatePhotographerAccess } from '../services/accessControl.service.js';
@@ -14,10 +13,6 @@ const registerSchema = z
   .object({
     name: z.string().trim().min(2, 'Name must be at least 2 characters').max(100),
     email: z.string().trim().toLowerCase().email('Please provide a valid email address'),
-    activationCode: z
-      .string()
-      .trim()
-      .regex(/^\d{6}$/, 'Activation code must be a 6-digit number'),
     password: z
       .string()
       .min(8, 'Password must be at least 8 characters')
@@ -35,6 +30,14 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
+const verifyOtpSchema = z.object({
+  otp: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, 'Verification code must be exactly 6 digits'),
+  preAuthToken: z.string().optional(),
+});
+
 function setAuthCookie(res: Response, token: string): void {
   res.cookie(env.COOKIE_NAME, token, {
     httpOnly: true,
@@ -45,6 +48,11 @@ function setAuthCookie(res: Response, token: string): void {
   });
 }
 
+/**
+ * Public registration without invitation or OTP.
+ * Creates an account with PENDING verification status.
+ * Does NOT issue an authenticated photographer session immediately.
+ */
 export async function register(
   req: Request,
   res: Response,
@@ -75,158 +83,58 @@ export async function register(
       return;
     }
 
-    // 2. Validate Invitation from Penta Prizm
-    const invitation = await Invitation.findOne({
-      email: normalizedEmail,
-      status: 'PENDING',
-    });
-
-    if (!invitation) {
-      res.status(400).json({
-        success: false,
-        error: 'INVITATION_REQUIRED',
-        message:
-          'A valid Penta Prizm studio invitation is required to register. Please contact your platform administrator.',
-      });
-      return;
-    }
-
-    // Check expiry
-    if (new Date() > new Date(invitation.expiresAt)) {
-      invitation.status = 'EXPIRED';
-      await invitation.save();
-      res.status(400).json({
-        success: false,
-        error: 'INVITATION_EXPIRED',
-        message:
-          'This invitation code has expired. Please ask your administrator to send a fresh invitation.',
-      });
-      return;
-    }
-
-    // Check failed attempts limit
-    if (invitation.failedAttempts >= 5) {
-      invitation.status = 'REVOKED';
-      await invitation.save();
-      res.status(400).json({
-        success: false,
-        error: 'INVITATION_LOCKED',
-        message:
-          'Too many failed activation attempts for this invitation. It has been locked for security. Please request a new invitation.',
-      });
-      return;
-    }
-
-    // Verify 6-digit code against stored hash
-    const isCodeMatch = await bcrypt.compare(validatedData.activationCode, invitation.codeHash);
-    if (!isCodeMatch) {
-      invitation.failedAttempts += 1;
-      const remainingAttempts = Math.max(0, 5 - invitation.failedAttempts);
-
-      if (remainingAttempts === 0) {
-        invitation.status = 'REVOKED';
-      }
-      await invitation.save();
-
-      res.status(400).json({
-        success: false,
-        error: 'INVALID_ACTIVATION_CODE',
-        message: `Invalid activation code. ${remainingAttempts} attempt(s) remaining before invitation is revoked.`,
-      });
-      return;
-    }
-
-    // 3. Atomically create photographer and consume invitation
+    // 2. Hash password with bcryptjs
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(validatedData.password, salt);
 
     const trialStartAt = new Date();
-    const trialExpiresAt =
-      invitation.trialExpiresAt ||
-      new Date(trialStartAt.getTime() + (invitation.trialDays || 30) * 24 * 60 * 60 * 1000);
+    // Default 30-day trial for self-registered photographers
+    const trialExpiresAt = new Date(trialStartAt.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-    let photographer: any;
+    // 3. Create photographer with PENDING verification status
+    const photographer = await Photographer.create({
+      name: validatedData.name,
+      email: normalizedEmail,
+      passwordHash,
+      role: 'PHOTOGRAPHER',
+      status: 'PENDING',
+      trialStartAt,
+      trialExpiresAt,
+      googleDrive: {
+        connected: false,
+      },
+    });
 
-    // Use transaction if supported (replica set), otherwise safe sequential update
+    // If an existing invitation record existed for this email, link and mark accepted
     try {
-      const session = await mongoose.startSession();
-      try {
-        await session.withTransaction(async () => {
-          const created = await Photographer.create(
-            [
-              {
-                name: validatedData.name,
-                email: normalizedEmail,
-                passwordHash,
-                role: 'PHOTOGRAPHER',
-                status: 'ACTIVE',
-                trialStartAt,
-                trialExpiresAt,
-                googleDrive: {
-                  connected: false,
-                },
-              },
-            ],
-            { session }
-          );
-          photographer = created[0];
-
-          invitation.status = 'ACCEPTED';
-          invitation.usedAt = new Date();
-          await invitation.save({ session });
-        });
-      } finally {
-        await session.endSession();
-      }
+      await Invitation.updateMany(
+        { email: normalizedEmail, status: 'PENDING' },
+        { $set: { status: 'ACCEPTED', usedAt: new Date() } }
+      );
     } catch {
-      // Fallback for standalone Mongo environments (e.g. single-node memory server without replica set)
-      photographer = await Photographer.create({
-        name: validatedData.name,
-        email: normalizedEmail,
-        passwordHash,
-        role: 'PHOTOGRAPHER',
-        status: 'ACTIVE',
-        trialStartAt,
-        trialExpiresAt,
-        googleDrive: {
-          connected: false,
-        },
-      });
-
-      invitation.status = 'ACCEPTED';
-      invitation.usedAt = new Date();
-      await invitation.save();
+      // Non-critical, ignore
     }
 
     // 4. Log audit record
     await logAdminAction({
-      adminId: invitation.createdBy,
       action: 'PHOTOGRAPHER_REGISTERED',
       targetType: 'PHOTOGRAPHER',
       targetId: photographer._id.toString(),
+      ipAddress: req.ip,
       metadata: {
-        studioName: invitation.studioName,
+        studioName: photographer.name,
         email: photographer.email,
-        trialDays: invitation.trialDays,
         trialExpiresAt,
+        status: 'PENDING',
       },
     });
 
-    const token = signToken({
-      id: photographer._id.toString(),
-      email: photographer.email,
-    });
-
-    setAuthCookie(res, token);
-
-    const access = evaluatePhotographerAccess(photographer);
-
+    // Do NOT issue an authenticated cookie here. Return success and instruct user to login with OTP.
     res.status(201).json({
       success: true,
-      message: 'Photographer registration successful. Welcome to Penta Prizm!',
+      message: 'Studio registered successfully with pending status. Please sign in with your email and password, then enter your 6-digit login OTP.',
       data: {
         user: photographer.toJSON(),
-        access,
       },
     });
   } catch (error) {
@@ -234,6 +142,11 @@ export async function register(
   }
 }
 
+/**
+ * Step 1: Validate email & password credentials.
+ * Issues a short-lived, restricted pre-authentication session token.
+ * Does NOT issue a full photographer session cookie.
+ */
 export async function login(
   req: Request,
   res: Response,
@@ -241,9 +154,10 @@ export async function login(
 ): Promise<void> {
   try {
     const validatedData = loginSchema.parse(req.body);
+    const normalizedEmail = validatedData.email;
 
-    const photographer = await Photographer.findOne({ email: validatedData.email });
-    if (!photographer) {
+    const photographer = await Photographer.findOne({ email: normalizedEmail });
+    if (!photographer || photographer.role === 'SUPERADMIN') {
       res.status(401).json({
         success: false,
         error: 'INVALID_CREDENTIALS',
@@ -264,30 +178,206 @@ export async function login(
 
     // Check account status
     if (photographer.status === 'SUSPENDED') {
-      res.status(403).json({
+      res.status(401).json({
         success: false,
         error: 'ACCOUNT_SUSPENDED',
-        message:
-          'Your photographer studio account has been suspended by Penta Prizm administrators. Please contact support.',
+        message: 'Your photographer studio account has been suspended by Penta Prizm administrators. Please contact support.',
       });
       return;
     }
 
-    const token = signToken({
+    // Issue short-lived, restricted pre-authentication session token (10 minutes)
+    const preAuthToken = signPreAuthToken({
       id: photographer._id.toString(),
       email: photographer.email,
     });
 
-    setAuthCookie(res, token);
+    res.status(200).json({
+      success: true,
+      message: 'Credentials verified. Please enter the 6-digit login verification OTP provided by your Super Admin.',
+      data: {
+        preAuthToken,
+        email: photographer.email,
+        requiresOtp: true,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
 
-    const access = evaluatePhotographerAccess(photographer);
+/**
+ * Step 2: Verify the 6-digit login OTP against the pre-auth session.
+ * Issues the full photographer session cookie on success.
+ */
+export async function verifyLoginOtp(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const validatedData = verifyOtpSchema.parse(req.body);
+
+    let token = validatedData.preAuthToken;
+    if (!token && req.headers.authorization?.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
+    }
+
+    if (!token) {
+      res.status(401).json({
+        success: false,
+        error: 'PRE_AUTH_REQUIRED',
+        message: 'Pre-authentication session token required. Please log in with your email and password first.',
+      });
+      return;
+    }
+
+    let payload: { id: string; email: string };
+    try {
+      payload = verifyPreAuthToken(token);
+    } catch {
+      res.status(401).json({
+        success: false,
+        error: 'PRE_AUTH_EXPIRED',
+        message: 'Your verification session has expired. Please sign in with your email and password again.',
+      });
+      return;
+    }
+
+    const photographer = await Photographer.findById(payload.id);
+    if (!photographer || photographer.email.toLowerCase() !== payload.email.toLowerCase()) {
+      res.status(401).json({
+        success: false,
+        error: 'INVALID_CREDENTIALS',
+        message: 'Invalid administrative session credentials.',
+      });
+      return;
+    }
+
+    if (photographer.status === 'SUSPENDED') {
+      res.status(401).json({
+        success: false,
+        error: 'ACCOUNT_SUSPENDED',
+        message: 'Your photographer studio account has been suspended by Penta Prizm administrators. Please contact support.',
+      });
+      return;
+    }
+
+    const otpData = photographer.loginOtp;
+
+    // Check if an OTP was ever generated
+    if (!otpData || !otpData.codeHash) {
+      res.status(400).json({
+        success: false,
+        error: 'OTP_NOT_GENERATED',
+        message: 'No login verification OTP has been generated for your account. Please ask your Penta Prizm Super Admin to generate your 6-digit login OTP.',
+      });
+      return;
+    }
+
+    // Check if already used
+    if (otpData.isUsed) {
+      res.status(400).json({
+        success: false,
+        error: 'OTP_ALREADY_USED',
+        message: 'This login OTP has already been used. Please ask your Super Admin to generate a fresh 6-digit OTP.',
+      });
+      return;
+    }
+
+    // Check expiry
+    if (otpData.expiresAt && new Date() > new Date(otpData.expiresAt)) {
+      res.status(400).json({
+        success: false,
+        error: 'OTP_EXPIRED',
+        message: 'This login OTP has expired. Please ask your Super Admin to generate a fresh 6-digit OTP.',
+      });
+      return;
+    }
+
+    // Check failed attempts limit
+    if ((otpData.failedAttempts || 0) >= 5) {
+      res.status(400).json({
+        success: false,
+        error: 'OTP_LOCKED',
+        message: 'Too many failed verification attempts. This login OTP has been locked for security. Please request a new OTP from your Super Admin.',
+      });
+      return;
+    }
+
+    // Verify 6-digit OTP against stored bcrypt hash
+    const isCodeMatch = await bcrypt.compare(validatedData.otp, otpData.codeHash);
+    if (!isCodeMatch) {
+      photographer.loginOtp!.failedAttempts = (photographer.loginOtp!.failedAttempts || 0) + 1;
+      const remainingAttempts = Math.max(0, 5 - photographer.loginOtp!.failedAttempts);
+      await photographer.save();
+
+      res.status(400).json({
+        success: false,
+        error: 'INVALID_OTP',
+        message: `Invalid 6-digit verification code. ${remainingAttempts} attempt(s) remaining before OTP is locked.`,
+      });
+      return;
+    }
+
+    // Atomic update to mark OTP as used and activate pending account (prevents concurrent replay)
+    const updatedPhotographer = await Photographer.findOneAndUpdate(
+      {
+        _id: photographer._id,
+        'loginOtp.isUsed': false,
+        'loginOtp.expiresAt': { $gt: new Date() },
+        'loginOtp.failedAttempts': { $lt: 5 },
+      },
+      {
+        $set: {
+          'loginOtp.isUsed': true,
+          'loginOtp.usedAt': new Date(),
+          status: photographer.status === 'PENDING' ? 'ACTIVE' : photographer.status,
+        },
+      },
+      { new: true }
+    );
+
+    if (!updatedPhotographer) {
+      res.status(400).json({
+        success: false,
+        error: 'OTP_REPLAY_DETECTED',
+        message: 'This login OTP could not be verified or was concurrently consumed. Please request a fresh code.',
+      });
+      return;
+    }
+
+    // Log successful OTP verification in audit ledger
+    await logAdminAction({
+      adminId: updatedPhotographer.loginOtp?.generatedBy,
+      action: 'PHOTOGRAPHER_LOGIN_OTP_VERIFIED',
+      targetType: 'PHOTOGRAPHER',
+      targetId: updatedPhotographer._id.toString(),
+      ipAddress: req.ip,
+      metadata: {
+        email: updatedPhotographer.email,
+        studioName: updatedPhotographer.name,
+        verifiedAt: new Date(),
+      },
+    });
+
+    // Issue genuine photographer session token
+    const sessionToken = signToken({
+      id: updatedPhotographer._id.toString(),
+      email: updatedPhotographer.email,
+    });
+
+    setAuthCookie(res, sessionToken);
+
+    const access = evaluatePhotographerAccess(updatedPhotographer);
 
     res.status(200).json({
       success: true,
-      message: 'Login successful',
+      message: 'Login verified successfully. Welcome to your studio portal!',
       data: {
-        user: photographer.toJSON(),
+        user: updatedPhotographer.toJSON(),
         access,
+        token: sessionToken,
       },
     });
   } catch (error) {

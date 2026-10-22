@@ -16,6 +16,15 @@ export interface AccessControlResult {
   message?: string;
 }
 
+export type LoginOtpStatus = 'NOT_GENERATED' | 'PENDING' | 'EXPIRED' | 'USED' | 'LOCKED';
+
+export interface PhotographerOtpInfo {
+  status: LoginOtpStatus;
+  expiresAt?: string;
+  generatedAt?: string;
+  failedAttempts?: number;
+}
+
 export interface User {
   id: string;
   _id?: string;
@@ -35,6 +44,7 @@ export interface User {
   weddingsCount?: number;
   trialDaysRemaining?: number;
   isTrialExpired?: boolean;
+  otpInfo?: PhotographerOtpInfo;
 }
 
 export interface WeddingEvent {

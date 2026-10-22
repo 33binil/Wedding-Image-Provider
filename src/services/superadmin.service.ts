@@ -85,6 +85,17 @@ export const superadminService = {
     return res.data.data;
   },
 
+  async generatePhotographerOtp(id: string): Promise<{
+    otp: string;
+    expiresAt: string;
+    photographerId: string;
+    email: string;
+    studioName: string;
+  }> {
+    const res = await api.post(`/superadmin/photographers/${id}/login-otp`);
+    return res.data.data;
+  },
+
   async getAuditLogs(): Promise<AdminAuditLogEntry[]> {
     const res = await api.get('/superadmin/audit-logs');
     return res.data.data.logs;
