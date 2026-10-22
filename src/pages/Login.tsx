@@ -1,168 +1,49 @@
-import { useState, useRef, useEffect } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { Camera, Lock, Mail, ArrowRight, KeyRound, ShieldAlert, CheckCircle2, ArrowLeft, RefreshCw } from 'lucide-react';
-import { Input } from '../components/ui/Input.js';
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Camera, ShieldCheck, HardDrive, RefreshCw, Sparkles, Settings2 } from 'lucide-react';
 import { Button } from '../components/ui/Button.js';
 import { useAuth } from '../hooks/useAuth.js';
 import { useToast } from '../hooks/useToast.js';
-
-const loginSchema = z.object({
-  email: z.string().trim().email('Please enter a valid email address'),
-  password: z.string().min(1, 'Password is required'),
-});
-
-type LoginFormData = z.infer<typeof loginSchema>;
+import { getFirebaseConfigurationMessage } from '../services/firebase.service.js';
+import { isFirebaseClientConfigured } from '../config/firebase.js';
 
 export default function Login() {
-  const { login, verifyLoginOtp } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
+  const { signInWithGoogle } = useAuth();
   const { success, error: showError } = useToast();
 
   const [isLoading, setIsLoading] = useState(false);
-  const [serverError, setServerError] = useState<string | null>(null);
+  const [serverError, setServerError] = useState('');
 
-  // Step 2 OTP State
-  const [step, setStep] = useState<'CREDENTIALS' | 'OTP'>('CREDENTIALS');
-  const [preAuthToken, setPreAuthToken] = useState<string>('');
-  const [targetEmail, setTargetEmail] = useState<string>('');
-  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
-  const [otpError, setOtpError] = useState<string | null>(null);
-  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  // Surfaced when the Firebase environment variables have not been supplied.
+  const configurationMessage = getFirebaseConfigurationMessage();
+  const isConfigured = isFirebaseClientConfigured();
 
-  const otpInputsRef = useRef<(HTMLInputElement | null)[]>([]);
-
-  const defaultEmail = (location.state as any)?.registeredEmail || '';
-
-  const {
-    register,
-    handleSubmit,
-    setValue,
-    formState: { errors },
-  } = useForm<LoginFormData>({
-    resolver: zodResolver(loginSchema),
-    defaultValues: {
-      email: defaultEmail,
-    },
-  });
-
-  useEffect(() => {
-    if (defaultEmail) {
-      setValue('email', defaultEmail);
-    }
-  }, [defaultEmail, setValue]);
-
-  // Focus first OTP input when step changes to OTP
-  useEffect(() => {
-    if (step === 'OTP' && otpInputsRef.current[0]) {
-      otpInputsRef.current[0]?.focus();
-    }
-  }, [step]);
-
-  // Step 1: Submit Credentials
-  const onCredentialsSubmit = async (data: LoginFormData) => {
+  const handleGoogleSignIn = async () => {
     try {
       setIsLoading(true);
-      setServerError(null);
+      setServerError('');
 
-      const res = await login({
-        email: data.email.trim().toLowerCase(),
-        password: data.password,
-      });
+      const result = await signInWithGoogle();
 
-      if (res.requiresOtp && res.preAuthToken) {
-        setPreAuthToken(res.preAuthToken);
-        setTargetEmail(res.email);
-        setStep('OTP');
-        setOtpDigits(['', '', '', '', '', '']);
-        setOtpError(null);
-        success('Credentials Verified', 'Please enter your 6-digit login verification OTP.');
-      } else {
-        // Fallback for direct session if any
-        navigate('/dashboard');
-      }
-    } catch (err: any) {
-      const msg = err.message || 'Login failed. Please verify your credentials.';
-      setServerError(msg);
-      showError('Authentication Failed', msg);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+      success(
+        result.firstSignIn ? 'Welcome to Penta Prizm!' : 'Welcome back!',
+        result.needsDriveSetup
+          ? 'Sign-in successful. Connect Google Drive from the dashboard to create wedding folders automatically.'
+          : 'Your studio portal is ready.'
+      );
 
-  // Handle OTP Slot Input Change
-  const handleOtpChange = (index: number, value: string) => {
-    // Only accept numeric characters
-    const sanitized = value.replace(/\D/g, '');
-    if (!sanitized && value !== '') return;
-
-    const newDigits = [...otpDigits];
-    newDigits[index] = sanitized.slice(-1); // Only take latest char
-    setOtpDigits(newDigits);
-    setOtpError(null);
-
-    // Auto-advance to next input if filled
-    if (sanitized && index < 5) {
-      otpInputsRef.current[index + 1]?.focus();
-    }
-  };
-
-  // Handle Backspace navigation
-  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace') {
-      if (!otpDigits[index] && index > 0) {
-        otpInputsRef.current[index - 1]?.focus();
-      }
-    }
-  };
-
-  // Handle Paste Event
-  const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
-    e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
-    if (!pasted) return;
-
-    const newDigits = [...otpDigits];
-    for (let i = 0; i < pasted.length; i++) {
-      newDigits[i] = pasted[i];
-    }
-    setOtpDigits(newDigits);
-    setOtpError(null);
-
-    const nextIndex = Math.min(pasted.length, 5);
-    otpInputsRef.current[nextIndex]?.focus();
-  };
-
-  // Step 2: Submit OTP
-  const onOtpSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const fullOtp = otpDigits.join('');
-
-    if (fullOtp.length !== 6) {
-      setOtpError('Please enter the complete 6-digit verification code.');
-      return;
-    }
-
-    try {
-      setIsVerifyingOtp(true);
-      setOtpError(null);
-
-      await verifyLoginOtp({
-        preAuthToken,
-        otp: fullOtp,
-      });
-
-      success('Welcome Back!', 'Login OTP verified successfully. Welcome to your studio portal.');
+      // Drive connection is optional — always navigate to the dashboard so the
+      // photographer can choose when (or whether) to connect Google Drive.
       navigate('/dashboard');
     } catch (err: any) {
-      const msg = err.message || 'Verification failed. Please check your OTP.';
-      setOtpError(msg);
-      showError('Verification Failed', msg);
+      const message =
+        err?.message ||
+        'We could not complete the Google sign-in. Please try again.';
+      setServerError(message);
+      showError('Sign-in Failed', message);
     } finally {
-      setIsVerifyingOtp(false);
+      setIsLoading(false);
     }
   };
 
@@ -176,152 +57,86 @@ export default function Login() {
           Photographer Portal
         </h2>
         <p className="mt-2 text-sm text-stone-600">
-          Sign in to manage your wedding events and guest galleries
+          Sign in with Google to manage your wedding events and guest galleries
         </p>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4">
         <div className="bg-white py-8 px-6 sm:px-10 border border-[#ECE5D8] rounded-2xl shadow-sm">
-          {step === 'CREDENTIALS' ? (
-            <>
-              {serverError && (
-                <div className="mb-6 p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 leading-relaxed">
-                  {serverError}
-                </div>
-              )}
-
-              <form onSubmit={handleSubmit(onCredentialsSubmit)} className="space-y-4">
-                <Input
-                  label="Email Address"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="photographer@studio.com"
-                  leftIcon={<Mail className="w-4 h-4" />}
-                  error={errors.email?.message}
-                  required
-                  {...register('email')}
-                />
-
-                <Input
-                  label="Password"
-                  type="password"
-                  autoComplete="current-password"
-                  placeholder="••••••••"
-                  leftIcon={<Lock className="w-4 h-4" />}
-                  error={errors.password?.message}
-                  required
-                  {...register('password')}
-                />
-
-                <Button
-                  type="submit"
-                  variant="primary"
-                  className="w-full mt-2"
-                  isLoading={isLoading}
-                  rightIcon={<ArrowRight className="w-4 h-4" />}
-                >
-                  Continue to Verification &rarr;
-                </Button>
-              </form>
-
-              <div className="mt-6 pt-6 border-t border-stone-100 text-center">
-                <p className="text-xs text-stone-600">
-                  New wedding photographer?{' '}
-                  <Link
-                    to="/register"
-                    className="font-semibold text-stone-900 hover:text-[#9C7D4F] underline underline-offset-4"
-                  >
-                    Register an account
-                  </Link>
-                </p>
-              </div>
-            </>
-          ) : (
-            /* STEP 2: SIX-DIGIT LOGIN OTP VERIFICATION */
-            <div>
-              <div className="mb-5 text-center">
-                <div className="w-10 h-10 rounded-full bg-[#FAF8F5] border border-[#ECE5D8] text-[#9C7D4F] flex items-center justify-center mx-auto mb-2">
-                  <KeyRound className="w-5 h-5" />
-                </div>
-                <h3 className="font-serif text-lg font-semibold text-stone-900">
-                  Two-Step OTP Verification
-                </h3>
-                <p className="text-xs text-stone-600 mt-1">
-                  Enter the 6-digit login OTP assigned to <span className="font-semibold text-stone-900">{targetEmail}</span> by your Super Admin.
-                </p>
-              </div>
-
-              {otpError && (
-                <div className="mb-5 p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2.5">
-                  <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                  <span>{otpError}</span>
-                </div>
-              )}
-
-              <form onSubmit={onOtpSubmit} className="space-y-5">
-                <div className="flex justify-center gap-2 sm:gap-2.5">
-                  {otpDigits.map((digit, idx) => (
-                    <input
-                      key={idx}
-                      ref={(el) => {
-                        otpInputsRef.current[idx] = el;
-                      }}
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={1}
-                      value={digit}
-                      onChange={(e) => handleOtpChange(idx, e.target.value)}
-                      onKeyDown={(e) => handleOtpKeyDown(idx, e)}
-                      onPaste={handleOtpPaste}
-                      className="w-11 h-13 sm:w-12 sm:h-14 text-center text-xl font-bold font-mono bg-[#FAF8F5] border border-stone-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#C5A880] focus:border-[#9C7D4F] text-stone-900 transition-all shadow-inner"
-                      autoComplete="one-time-code"
-                    />
-                  ))}
-                </div>
-
-                <div className="p-3 bg-[#FAF8F5] border border-[#EADBCE] rounded-xl text-[11px] text-stone-600 space-y-1">
-                  <p className="font-medium text-stone-800">
-                    ℹ️ Need your login OTP?
-                  </p>
-                  <p className="leading-relaxed">
-                    Contact your Penta Prizm Super Admin. They can generate a single-use 6-digit login code valid for 5 minutes from the administrator directory.
-                  </p>
-                </div>
-
-                <Button
-                  type="submit"
-                  variant="primary"
-                  className="w-full"
-                  isLoading={isVerifyingOtp}
-                  disabled={otpDigits.join('').length !== 6}
-                  rightIcon={<ArrowRight className="w-4 h-4" />}
-                >
-                  Verify Code & Enter Studio
-                </Button>
-
-                <div className="pt-2 text-center">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setStep('CREDENTIALS');
-                      setServerError(null);
-                      setOtpError(null);
-                    }}
-                    className="inline-flex items-center gap-1.5 text-xs text-stone-500 hover:text-stone-900 transition-colors cursor-pointer"
-                  >
-                    <ArrowLeft className="w-3.5 h-3.5" /> Back to email & password
-                  </button>
-                </div>
-              </form>
+          {serverError && (
+            <div className="mb-6 p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 leading-relaxed">
+              {serverError}
             </div>
           )}
-        </div>
 
-        {/* Security badge */}
-        <p className="text-center text-[11px] text-stone-400 mt-6">
-          Protected with Super Admin-controlled single-use OTPs & rate limiting
-        </p>
+          {!isConfigured && configurationMessage && (
+            <div className="mb-6 p-3.5 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5">
+              <Settings2 className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-900 leading-relaxed">
+                <span className="font-semibold block text-amber-950">Firebase setup required</span>
+                {configurationMessage}
+              </div>
+            </div>
+          )}
+
+          <Button
+            type="button"
+            variant="primary"
+            className="w-full"
+            isLoading={isLoading}
+            disabled={!isConfigured}
+            title={!isConfigured ? configurationMessage ?? undefined : undefined}
+            onClick={handleGoogleSignIn}
+            leftIcon={
+              isLoading ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <svg className="w-4 h-4" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="#4285F4"
+                    d="M23.52 12.27c0-.85-.08-1.67-.22-2.45H12v4.63h6.46a5.52 5.52 0 0 1-2.4 3.62v3h3.88c2.27-2.09 3.58-5.17 3.58-8.8Z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 24c3.24 0 5.96-1.08 7.94-2.91l-3.88-3c-1.08.72-2.45 1.15-4.06 1.15-3.12 0-5.77-2.11-6.71-4.94H1.28v3.09A12 12 0 0 0 12 24Z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.29 14.3a7.2 7.2 0 0 1 0-4.6V6.61H1.28a12 12 0 0 0 0 10.78l4.01-3.09Z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0A12 12 0 0 0 1.28 6.61l4.01 3.09C6.23 6.86 8.88 4.75 12 4.75Z"
+                  />
+                </svg>
+              )
+            }
+          >
+            Continue with Google
+          </Button>
+
+          <div className="mt-6 p-4 bg-[#FDFBF7] border border-[#E9DFC7] rounded-xl flex items-start gap-3">
+            <ShieldCheck className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+            <p className="text-xs text-stone-700 leading-relaxed">
+              We use <strong>Firebase Authentication</strong> with Google Sign-In. We never see or
+              store your Google password, and Penta Prizm never receives your Google account
+              credentials.
+            </p>
+          </div>
+
+          <div className="mt-3 p-4 bg-[#F7FAF7] border border-emerald-100 rounded-xl flex items-start gap-3">
+            <HardDrive className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+            <p className="text-xs text-stone-700 leading-relaxed">
+              After signing in you will be asked to authorise <strong>Google Drive</strong> so we
+              can create a photo folder for each wedding. You can skip this and connect it later.
+            </p>
+          </div>
+
+          <div className="mt-6 flex items-center justify-center gap-2 text-[11px] text-stone-500">
+            <Sparkles className="w-3.5 h-3.5 text-[#9C7D4F]" />
+            <span>Least-privilege Drive access · revocable at any time</span>
+          </div>
+        </div>
       </div>
     </div>
   );

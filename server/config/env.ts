@@ -17,6 +17,11 @@ const envSchema = z.object({
   }, z.coerce.number().default(3000)),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   CLIENT_URL: z.string().default('http://localhost:3000'),
+  // True when CLIENT_URL was explicitly provided (rather than defaulted).
+  CLIENT_URL_EXPLICIT: z.preprocess(
+    () => Boolean(process.env.CLIENT_URL && process.env.CLIENT_URL.trim().length > 0),
+    z.boolean().default(false)
+  ),
   MONGODB_URI: z.string().optional().default(''),
   JWT_SECRET: z.string().min(8).default('dev-wedding-ai-jwt-secret-key-32-chars-long'),
   COOKIE_NAME: z.string().default('wedding_auth_token'),
@@ -41,9 +46,23 @@ const envSchema = z.object({
   }, z.boolean()).default(false),
   GOOGLE_CLIENT_ID: z.string().optional().default(''),
   GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
+  // Local development callback URI (exact value must be registered in Google Cloud Console)
   GOOGLE_REDIRECT_URI: z.string().default('http://localhost:3000/api/integrations/google-drive/callback'),
-  OAUTH_STATE_SECRET: z.string().default('dev-wedding-oauth-state-secret-2026'),
-  TOKEN_ENCRYPTION_KEY: z.string().default('dev-encryption-key-wedding-drive-32-chars'),
+  // Production callback URI (e.g. https://your-project.vercel.app/api/integrations/google-drive/callback)
+  GOOGLE_REDIRECT_URI_PRODUCTION: z.string().optional().default(''),
+  OAUTH_STATE_SECRET: z.string().min(16, 'OAUTH_STATE_SECRET must be at least 16 characters').default('dev-wedding-oauth-state-secret-2026'),
+  TOKEN_ENCRYPTION_KEY: z.string().min(16, 'TOKEN_ENCRYPTION_KEY must be at least 16 characters').default('dev-encryption-key-wedding-drive-32-chars'),
+
+  // ---------------------------------------------------------------------------
+  // Firebase Authentication (Google Sign-In) — SERVER-SIDE SECRETS
+  // ---------------------------------------------------------------------------
+  // Either supply the whole service account as one JSON blob (recommended on
+  // Vercel), or the three individual fields.
+  FIREBASE_SERVICE_ACCOUNT: z.string().optional().default(''),
+  FIREBASE_PROJECT_ID: z.string().optional().default(''),
+  FIREBASE_CLIENT_EMAIL: z.string().optional().default(''),
+  // Private keys are stored with escaped newlines in most secret managers.
+  FIREBASE_PRIVATE_KEY: z.string().optional().default(''),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

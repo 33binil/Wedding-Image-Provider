@@ -48,7 +48,6 @@ export default function Dashboard() {
   const [loadingDrive, setLoadingDrive] = useState(true);
   const [connectingDrive, setConnectingDrive] = useState(false);
   const [disconnectingDrive, setDisconnectingDrive] = useState(false);
-  const [showSetupModal, setShowSetupModal] = useState(false);
 
   const loadDriveStatus = useCallback(async () => {
     try {
@@ -130,7 +129,9 @@ export default function Dashboard() {
 
   const handleConnectDrive = async () => {
     if (!driveStatus?.configured) {
-      setShowSetupModal(true);
+      showError(
+        'Google Drive connection is temporarily unavailable. Please contact the administrator.'
+      );
       return;
     }
 
@@ -147,7 +148,9 @@ export default function Dashboard() {
         err.message?.includes('not yet configured') ||
         err.message?.includes('GOOGLE_DRIVE_NOT_CONFIGURED')
       ) {
-        setShowSetupModal(true);
+        showError(
+          'Google Drive connection is temporarily unavailable. Please contact the administrator.'
+        );
       } else {
         showError('Connection Error', err.message || 'Failed to initiate Google Drive authentication.');
       }
@@ -293,12 +296,6 @@ export default function Dashboard() {
               </Button>
             )}
 
-            <button
-              onClick={() => setShowSetupModal(true)}
-              className="text-xs text-stone-500 hover:text-stone-800 underline underline-offset-4 px-2 py-1 cursor-pointer"
-            >
-              Setup Guide
-            </button>
           </div>
         </div>
       </div>
@@ -445,101 +442,6 @@ export default function Dashboard() {
         )}
       </Modal>
 
-      {/* Google Cloud Drive Setup Modal */}
-      <Modal
-        isOpen={showSetupModal}
-        onClose={() => setShowSetupModal(false)}
-        title="Google Drive OAuth Integration Setup"
-        description="Follow these steps to connect your photographer Google Drive with least-privilege permissions."
-        maxWidth="lg"
-      >
-        <div className="space-y-4 text-sm text-stone-700">
-          <div className="p-3 bg-[#FDFBF7] border border-[#E9DFC7] rounded-xl flex items-start gap-3">
-            <KeyRound className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
-            <p className="text-xs text-stone-800 leading-relaxed">
-              Google Drive OAuth utilizes offline authorization code flow with AES-256-GCM encrypted refresh tokens and least-privilege scope (<code className="bg-stone-200 px-1 py-0.5 rounded font-mono">drive.file</code>).
-              Once keys are configured, all wedding folders are automatically organized under a dedicated <code className="font-semibold text-stone-900">"Wedding AI Photo Finder"</code> parent directory.
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            <div className="flex items-start gap-3">
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-stone-900 text-white text-xs font-semibold shrink-0">1</span>
-              <div>
-                <h4 className="font-semibold text-stone-900">Google Cloud Console Project</h4>
-                <p className="text-xs text-stone-600 mt-0.5">
-                  Visit <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer" className="text-stone-900 font-semibold underline inline-flex items-center gap-0.5">console.cloud.google.com <ExternalLink className="w-3 h-3" /></a> and create or select your project.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-stone-900 text-white text-xs font-semibold shrink-0">2</span>
-              <div>
-                <h4 className="font-semibold text-stone-900">Enable Google Drive API</h4>
-                <p className="text-xs text-stone-600 mt-0.5">
-                  Go to <strong>APIs & Services &gt; Library</strong>, search for <em>Google Drive API</em>, and click <strong>Enable</strong>.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-stone-900 text-white text-xs font-semibold shrink-0">3</span>
-              <div>
-                <h4 className="font-semibold text-stone-900">OAuth Consent Screen & Scopes</h4>
-                <p className="text-xs text-stone-600 mt-0.5">
-                  Go to <strong>APIs & Services &gt; OAuth consent screen</strong>. Select <em>External</em>. Add scope:
-                  <code className="block mt-1 p-1.5 bg-stone-100 rounded font-mono text-xs select-all text-stone-800">
-                    https://www.googleapis.com/auth/drive.file
-                  </code>
-                  While the app is in "Testing" mode, make sure to add your photographer Gmail address under <strong>Test Users</strong>.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-stone-900 text-white text-xs font-semibold shrink-0">4</span>
-              <div>
-                <h4 className="font-semibold text-stone-900">Create OAuth 2.0 Credentials</h4>
-                <p className="text-xs text-stone-600 mt-0.5">
-                  Go to <strong>APIs & Services &gt; Credentials &gt; Create Credentials &gt; OAuth client ID</strong>.
-                  Select <em>Web application</em>. Add the following <strong>Authorized redirect URIs</strong>:
-                </p>
-                <div className="mt-1.5 space-y-1.5 font-mono text-xs">
-                  <div className="p-2 bg-stone-100 border border-stone-300 rounded text-stone-800 select-all">
-                    {window.location.origin}/api/integrations/google-drive/callback
-                  </div>
-                  <div className="p-2 bg-stone-100 border border-stone-300 rounded text-stone-600 select-all">
-                    http://localhost:3000/api/integrations/google-drive/callback
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-stone-900 text-white text-xs font-semibold shrink-0">5</span>
-              <div>
-                <h4 className="font-semibold text-stone-900">Configure Server Environment (.env)</h4>
-                <p className="text-xs text-stone-600 mt-0.5">
-                  Add the credentials to your server environment:
-                </p>
-                <pre className="mt-1.5 p-2.5 bg-stone-900 text-stone-100 rounded-lg font-mono text-xs overflow-x-auto">
-{`GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
-GOOGLE_CLIENT_SECRET="your-client-secret"
-GOOGLE_REDIRECT_URI="${window.location.origin}/api/integrations/google-drive/callback"
-TOKEN_ENCRYPTION_KEY="your-32-character-random-secret"`}
-                </pre>
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-3 border-t border-stone-100 flex justify-end">
-            <Button variant="primary" size="sm" onClick={() => setShowSetupModal(false)}>
-              Got it
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }

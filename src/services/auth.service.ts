@@ -1,48 +1,23 @@
 import { api } from './api.js';
 import { User, AccessControlResult } from '../types/index.js';
 
-export interface RegisterPayload {
-  name: string;
-  email: string;
-  password: string;
-  confirmPassword: string;
-}
-
-export interface LoginPayload {
-  email: string;
-  password: string;
-}
-
-export interface LoginInitialResponse {
-  preAuthToken: string;
-  email: string;
-  requiresOtp: boolean;
-}
-
-export interface VerifyOtpPayload {
-  preAuthToken: string;
-  otp: string;
-}
-
 export interface AuthResponse {
   user: User;
   access?: AccessControlResult;
   token?: string;
+  /** True when the photographer still needs to authorise Google Drive. */
+  needsDriveSetup?: boolean;
+  /** True when this sign-in created a brand-new studio account. */
+  firstSignIn?: boolean;
 }
 
 export const authService = {
-  async register(payload: RegisterPayload): Promise<{ user: User }> {
-    const res = await api.post('/auth/register', payload);
-    return res.data.data;
-  },
-
-  async login(payload: LoginPayload): Promise<LoginInitialResponse> {
-    const res = await api.post('/auth/login', payload);
-    return res.data.data;
-  },
-
-  async verifyLoginOtp(payload: VerifyOtpPayload): Promise<AuthResponse> {
-    const res = await api.post('/auth/verify-login-otp', payload);
+  /**
+   * Exchanges a Firebase ID token (from Google Sign-In) for a backend
+   * session. The backend verifies the token with the Firebase Admin SDK.
+   */
+  async signInWithGoogle(idToken: string): Promise<AuthResponse> {
+    const res = await api.post('/auth/google', { idToken });
     return res.data.data;
   },
 
@@ -52,6 +27,15 @@ export const authService = {
 
   async getMe(): Promise<AuthResponse> {
     const res = await api.get('/auth/me');
+    return res.data.data;
+  },
+
+  async getOnboardingState(): Promise<{
+    driveConnected: boolean;
+    driveReconnectRequired: boolean;
+    needsDriveSetup: boolean;
+  }> {
+    const res = await api.get('/auth/onboarding');
     return res.data.data;
   },
 };

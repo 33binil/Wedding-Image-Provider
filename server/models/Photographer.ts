@@ -12,26 +12,19 @@ export interface IGoogleDrive {
   reconnectRequired?: boolean;
 }
 
-export interface ILoginOtp {
-  codeHash?: string;
-  expiresAt?: Date;
-  failedAttempts: number;
-  isUsed: boolean;
-  usedAt?: Date;
-  generatedAt?: Date;
-  generatedBy?: mongoose.Types.ObjectId;
-}
-
 export interface IPhotographer extends Document {
   name: string;
   email: string;
-  passwordHash: string;
+  /** Only set for the platform superadmin, who signs in with a password. */
+  passwordHash?: string;
+  /** Firebase UID for photographers who sign in with Google. */
+  firebaseUid?: string;
+  firebaseLinkedAt?: Date;
   role: UserRole;
   status: AccountStatus;
   trialStartAt?: Date;
   trialExpiresAt?: Date;
   googleDrive: IGoogleDrive;
-  loginOtp?: ILoginOtp;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -51,9 +44,17 @@ const PhotographerSchema = new Schema<IPhotographer>(
       lowercase: true,
       trim: true,
     },
+    // Photographers authenticate with Firebase Google Sign-In, so no password
+    // hash is stored for them. The superadmin still uses a password.
     passwordHash: {
       type: String,
-      required: [true, 'Password hash is required'],
+    },
+    firebaseUid: {
+      type: String,
+      trim: true,
+    },
+    firebaseLinkedAt: {
+      type: Date,
     },
     role: {
       type: String,
@@ -98,38 +99,16 @@ const PhotographerSchema = new Schema<IPhotographer>(
         default: false,
       },
     },
-    loginOtp: {
-      codeHash: {
-        type: String,
-      },
-      expiresAt: {
-        type: Date,
-      },
-      failedAttempts: {
-        type: Number,
-        default: 0,
-      },
-      isUsed: {
-        type: Boolean,
-        default: false,
-      },
-      usedAt: {
-        type: Date,
-      },
-      generatedAt: {
-        type: Date,
-      },
-      generatedBy: {
-        type: Schema.Types.ObjectId,
-        ref: 'Photographer',
-      },
-    },
   },
   {
     timestamps: true,
     toJSON: {
       transform(_doc, ret) {
         delete (ret as any).passwordHash;
+        delete (ret as any).firebaseUid;
+        // Legacy records may still carry a loginOtp sub-document from the
+        // retired OTP flow. It is no longer part of the schema, so it is
+        // stripped explicitly to keep it out of API responses.
         delete (ret as any).loginOtp;
         if (ret.googleDrive) {
           delete (ret.googleDrive as any).refreshTokenEncrypted;
@@ -142,6 +121,7 @@ const PhotographerSchema = new Schema<IPhotographer>(
 
 // Indexes
 PhotographerSchema.index({ role: 1, status: 1 });
-PhotographerSchema.index({ 'loginOtp.expiresAt': 1 });
+// Unique index so a single Firebase UID can only be bound to one account.
+PhotographerSchema.index({ firebaseUid: 1 }, { unique: true, sparse: true });
 
 export const Photographer = mongoose.model<IPhotographer>('Photographer', PhotographerSchema);

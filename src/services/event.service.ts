@@ -20,9 +20,6 @@ export interface UpdateEventPayload {
   description?: string;
   coverImageUrl?: string;
   status?: string;
-  driveFolderId?: string;
-  driveFolderName?: string;
-  driveConnectionStatus?: string;
 }
 
 export const eventService = {
@@ -78,6 +75,10 @@ export const eventService = {
     await api.delete('/integrations/google-drive/disconnect');
   },
 
+  async verifyDriveConnection(): Promise<void> {
+    await api.post('/integrations/google-drive/verify');
+  },
+
   async retryDriveFolderCreation(eventId: string): Promise<WeddingEvent> {
     const res = await api.post(`/events/${eventId}/drive-folder/retry`);
     return res.data.data.event;
@@ -89,6 +90,9 @@ export const eventService = {
     driveFolderWebViewLink?: string;
     driveFolderStatus: string;
     driveFolderError?: string;
+    driveFolderCreatedAt?: string;
+    driveFolderAttempts?: number;
+    driveConnectionStatus: string;
   }> {
     const res = await api.get(`/events/${eventId}/drive-folder`);
     return res.data.data;

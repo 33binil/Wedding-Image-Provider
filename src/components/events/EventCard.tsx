@@ -1,4 +1,16 @@
-import { Calendar, MapPin, Users, ArrowUpRight, QrCode, FolderCheck, ExternalLink, AlertTriangle, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
+import {
+  Calendar,
+  MapPin,
+  Users,
+  ArrowUpRight,
+  QrCode,
+  FolderCheck,
+  ExternalLink,
+  AlertTriangle,
+  RefreshCw,
+  FolderSync,
+} from 'lucide-react';
 import { WeddingEvent } from '../../types/index.js';
 import { formatDate } from '../../lib/utils.js';
 
@@ -6,9 +18,16 @@ interface EventCardProps {
   event: WeddingEvent;
   onSelect: (event: WeddingEvent) => void;
   onOpenQr?: (event: WeddingEvent) => void;
+  onRetryDriveFolder?: (event: WeddingEvent) => void;
 }
 
-export function EventCard({ event, onSelect, onOpenQr }: EventCardProps) {
+export function EventCard({
+  event,
+  onSelect,
+  onOpenQr,
+  onRetryDriveFolder,
+}: EventCardProps) {
+  const [retrying, setRetrying] = useState(false);
   const coupleNames = [event.brideName, event.groomName].filter(Boolean).join(' & ');
 
   const statusLabel = {
@@ -30,6 +49,17 @@ export function EventCard({ event, onSelect, onOpenQr }: EventCardProps) {
   );
   const isFolderFailed = event.driveFolderStatus === 'FAILED';
   const isFolderPending = event.driveFolderStatus === 'PENDING';
+
+  const handleRetry = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!onRetryDriveFolder) return;
+    try {
+      setRetrying(true);
+      await onRetryDriveFolder(event);
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   return (
     <div
@@ -85,7 +115,7 @@ export function EventCard({ event, onSelect, onOpenQr }: EventCardProps) {
 
           {event.venue && (
             <p className="text-xs text-stone-500 mt-1.5 flex items-center gap-1.5 truncate">
-              <MapPin className="w-3.5 h-3.5 text-stone-400 shrink-0" />
+              <MapPin className="w-3.5 h-3.5 text-stone-400" />
               <span>{event.venue}</span>
             </p>
           )}
@@ -118,20 +148,34 @@ export function EventCard({ event, onSelect, onOpenQr }: EventCardProps) {
               <ExternalLink className="w-2.5 h-2.5" />
             </a>
           ) : isFolderFailed ? (
-            <span
-              className="inline-flex items-center gap-1 text-[11px] font-medium text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md"
-              title={event.driveFolderError || 'Folder creation failed'}
+            <button
+              type="button"
+              onClick={handleRetry}
+              disabled={retrying || !onRetryDriveFolder}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-rose-700 bg-rose-50 hover:bg-rose-100 px-2 py-0.5 rounded-md transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              title={
+                onRetryDriveFolder
+                  ? event.driveFolderError || 'Folder creation failed — click to retry'
+                  : event.driveFolderError || 'Folder creation failed'
+              }
             >
-              <AlertTriangle className="w-3 h-3 text-rose-600" />
-              <span>Folder Failed</span>
-            </span>
+              {retrying ? (
+                <RefreshCw className="w-3 h-3 text-rose-600 animate-spin" />
+              ) : (
+                <AlertTriangle className="w-3 h-3 text-rose-600" />
+              )}
+              <span>{retrying ? 'Retrying...' : 'Retry Folder'}</span>
+            </button>
           ) : isFolderPending ? (
             <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md">
               <RefreshCw className="w-3 h-3 text-amber-600 animate-spin" />
               <span>Creating Folder</span>
             </span>
           ) : (
-            <span className="font-mono text-stone-400">Token: {event.publicToken.substring(0, 8)}...</span>
+            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-stone-500 bg-stone-100 px-2 py-0.5 rounded-md">
+              <FolderSync className="w-3 h-3 text-stone-400" />
+              <span>No Drive Folder</span>
+            </span>
           )}
         </div>
 

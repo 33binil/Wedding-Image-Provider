@@ -19,6 +19,8 @@ export interface IEvent extends Document {
   driveFolderWebViewLink?: string;
   driveFolderStatus: DriveFolderStatus;
   driveFolderError?: string;
+  driveFolderCreatedAt?: Date;
+  driveFolderAttempts: number;
   driveConnectionStatus: DriveConnectionStatus;
   status: EventStatus;
   createdAt: Date;
@@ -94,6 +96,14 @@ const EventSchema = new Schema<IEvent>(
     driveFolderError: {
       type: String,
       trim: true,
+    },
+    driveFolderCreatedAt: {
+      type: Date,
+    },
+    driveFolderAttempts: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
     driveConnectionStatus: {
       type: String,

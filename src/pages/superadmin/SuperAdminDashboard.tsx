@@ -85,16 +85,6 @@ export default function SuperAdminDashboard() {
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
-  // Super Admin Login OTP generation state & reveal modal
-  const [generatingOtpForId, setGeneratingOtpForId] = useState<string | null>(null);
-  const [revealedLoginOtpData, setRevealedLoginOtpData] = useState<{
-    studioName: string;
-    email: string;
-    otp: string;
-    expiresAt: string;
-  } | null>(null);
-  const [copiedLoginOtp, setCopiedLoginOtp] = useState(false);
-
   // Load Dashboard Stats
   const loadStats = useCallback(async () => {
     try {
@@ -208,9 +198,9 @@ export default function SuperAdminDashboard() {
         notes: inviteNotes || undefined,
       });
 
-      const inviteUrl = `${window.location.origin}/register?code=${res.activationCode}&email=${encodeURIComponent(
-        res.invitation.email
-      )}`;
+      // Photographers now sign in with Google, so the invitation is matched
+      // automatically by their verified Google email address.
+      const inviteUrl = `${window.location.origin}/login`;
 
       setIsInviteModalOpen(false);
       setRevealedCodeData({
@@ -247,33 +237,6 @@ export default function SuperAdminDashboard() {
       loadStats();
     } catch (err: any) {
       showError('Revoke Failed', err.message);
-    }
-  };
-
-  const handleGenerateLoginOtp = async (photographer: User) => {
-    const id = photographer._id || photographer.id;
-    try {
-      setGeneratingOtpForId(id);
-      const res = await superadminService.generatePhotographerOtp(id);
-      setRevealedLoginOtpData({
-        studioName: photographer.name,
-        email: photographer.email,
-        otp: res.otp,
-        expiresAt: res.expiresAt,
-      });
-      setCopiedLoginOtp(false);
-      success('Login OTP Generated', `6-digit single-use OTP generated for ${photographer.name}.`);
-      loadPhotographers();
-      if (
-        selectedPhotographer &&
-        (selectedPhotographer.photographer._id === id || selectedPhotographer.photographer.id === id)
-      ) {
-        handleOpenPhotographerDetails(id);
-      }
-    } catch (err: any) {
-      showError('Failed to generate OTP', err.message);
-    } finally {
-      setGeneratingOtpForId(null);
     }
   };
 
@@ -565,7 +528,7 @@ export default function SuperAdminDashboard() {
                       <th className="py-3 px-4">Photographer / Studio</th>
                       <th className="py-3 px-4">Account Status</th>
                       <th className="py-3 px-4">Trial / License</th>
-                      <th className="py-3 px-4">Login Verification OTP</th>
+                      <th className="py-3 px-4">Sign-In Method</th>
                       <th className="py-3 px-4 text-center">Weddings</th>
                       <th className="py-3 px-4">Registered</th>
                       <th className="py-3 px-4 text-right">Actions</th>
@@ -631,36 +594,13 @@ export default function SuperAdminDashboard() {
                             )}
                           </td>
                           <td className="py-3.5 px-4">
-                            {p.otpInfo?.status === 'PENDING' && (
-                              <div>
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-900 border border-amber-300">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> Pending OTP
-                                </span>
-                                {p.otpInfo.expiresAt && (
-                                  <span className="block text-[10px] text-stone-400 mt-0.5">
-                                    Valid 5m · {p.otpInfo.failedAttempts || 0}/5 fails
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                            {p.otpInfo?.status === 'USED' && (
+                            {p.authProvider === 'FIREBASE_GOOGLE' ? (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-800 border border-emerald-200">
-                                <Check className="w-3 h-3 text-emerald-600" /> Used / Verified
+                                <Check className="w-3 h-3 text-emerald-600" /> Google (Firebase)
                               </span>
-                            )}
-                            {p.otpInfo?.status === 'EXPIRED' && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-stone-100 text-stone-600 border border-stone-200">
-                                Expired
-                              </span>
-                            )}
-                            {p.otpInfo?.status === 'LOCKED' && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-rose-50 text-rose-800 border border-rose-300">
-                                Locked (5 fails)
-                              </span>
-                            )}
-                            {(!p.otpInfo || p.otpInfo.status === 'NOT_GENERATED') && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-stone-50 text-stone-500 border border-stone-200">
-                                Not Generated
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-stone-50 text-stone-600 border border-stone-200">
+                                Not linked yet
                               </span>
                             )}
                           </td>
@@ -674,16 +614,6 @@ export default function SuperAdminDashboard() {
                           </td>
                           <td className="py-3.5 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="bg-[#FAF8F5] border-[#EADBCE] text-[#806439] hover:bg-[#F3EDE2] text-[11px] font-medium"
-                                isLoading={generatingOtpForId === (p._id || p.id)}
-                                onClick={() => handleGenerateLoginOtp(p)}
-                                leftIcon={<KeyRound className="w-3 h-3" />}
-                              >
-                                {p.otpInfo?.status === 'PENDING' ? 'Regenerate OTP' : 'Generate OTP'}
-                              </Button>
                               <Button
                                 size="sm"
                                 variant="outline"
@@ -1054,6 +984,9 @@ export default function SuperAdminDashboard() {
               <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
               <span>
                 <strong>Important:</strong> This plaintext code will not be visible again once this dialog is closed.
+                The studio account is created automatically the first time the photographer signs in with
+                the Google account matching <strong>{revealedCodeData.email}</strong>, and the invitation
+                trial length is applied automatically.
               </span>
             </div>
 
@@ -1157,35 +1090,24 @@ export default function SuperAdminDashboard() {
               </div>
             </div>
 
-            {/* Login Verification OTP Management */}
+            {/* Sign-In Method */}
             <div className="p-4 bg-white border border-stone-200 rounded-2xl flex items-center justify-between">
               <div>
                 <h4 className="font-semibold text-sm text-stone-900 flex items-center gap-1.5">
-                  <KeyRound className="w-4 h-4 text-[#9C7D4F]" /> Login Verification OTP
+                  <KeyRound className="w-4 h-4 text-[#9C7D4F]" /> Sign-In Method
                 </h4>
                 <p className="text-stone-500 text-xs mt-0.5">
-                  Current Status:{' '}
-                  <span className="font-semibold text-stone-800">
-                    {selectedPhotographer.photographer.otpInfo?.status || 'NOT_GENERATED'}
-                  </span>
-                  {selectedPhotographer.photographer.otpInfo?.expiresAt && (
-                    <span className="text-stone-400 block text-[11px]">
-                      Expires: {new Date(selectedPhotographer.photographer.otpInfo.expiresAt).toLocaleTimeString()}
+                  {selectedPhotographer.photographer.authProvider === 'FIREBASE_GOOGLE' ? (
+                    <span className="font-semibold text-stone-800">
+                      Google Sign-In via Firebase Authentication. The studio links its Google account on first sign-in.
+                    </span>
+                  ) : (
+                    <span className="font-semibold text-stone-800">
+                      Not linked to a Google account yet. The studio links its account the first time it signs in with Google.
                     </span>
                   )}
                 </p>
               </div>
-
-              <Button
-                size="sm"
-                variant="outline"
-                className="bg-[#FAF8F5] border-[#EADBCE] text-[#806439] hover:bg-[#F3EDE2]"
-                isLoading={generatingOtpForId === (selectedPhotographer.photographer._id || selectedPhotographer.photographer.id)}
-                onClick={() => handleGenerateLoginOtp(selectedPhotographer.photographer)}
-                leftIcon={<KeyRound className="w-3.5 h-3.5" />}
-              >
-                {selectedPhotographer.photographer.otpInfo?.status === 'PENDING' ? 'Regenerate OTP' : 'Generate Login OTP'}
-              </Button>
             </div>
 
             {/* Account Status Switch (Suspend / Activate) */}
@@ -1245,65 +1167,6 @@ export default function SuperAdminDashboard() {
         )}
       </Modal>
 
-      {/* SECURE PROTECTED LOGIN OTP REVEAL MODAL */}
-      <Modal
-        isOpen={Boolean(revealedLoginOtpData)}
-        onClose={() => setRevealedLoginOtpData(null)}
-        title="Single-Use Login OTP Generated"
-      >
-        {revealedLoginOtpData && (
-          <div className="space-y-5">
-            <div className="p-3.5 bg-[#FAF8F5] border border-[#EADBCE] rounded-xl flex items-center justify-between">
-              <div>
-                <span className="text-[11px] text-stone-500 uppercase tracking-wider block">Target Studio</span>
-                <span className="font-semibold text-stone-900 text-sm">{revealedLoginOtpData.studioName}</span>
-                <span className="text-stone-500 text-xs block font-mono">{revealedLoginOtpData.email}</span>
-              </div>
-              <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-semibold uppercase">
-                Active 5 Min
-              </span>
-            </div>
-
-            <div>
-              <span className="text-xs font-semibold text-stone-600 uppercase tracking-wider block mb-1 text-center">
-                Six-Digit Login Verification Code
-              </span>
-              <div className="p-5 bg-[#1C1917] rounded-2xl border border-[#3E362D] text-center shadow-lg">
-                <span className="text-4xl sm:text-5xl font-mono font-bold tracking-[0.3em] text-[#E5D7C0] select-all">
-                  {revealedLoginOtpData.otp}
-                </span>
-              </div>
-            </div>
-
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 leading-relaxed space-y-1">
-              <p className="font-semibold flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" /> Security Notice
-              </p>
-              <p>
-                This single-use code is stored as a one-way cryptographic hash and will expire in <strong>5 minutes</strong>. Securely communicate this 6-digit code to the studio administrator to complete their login.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 pt-2">
-              <Button
-                variant="primary"
-                className="flex-1 bg-[#C5A880] hover:bg-[#D4B58A] text-stone-950 font-semibold"
-                leftIcon={copiedLoginOtp ? <Check className="w-4 h-4 text-stone-950" /> : <Copy className="w-4 h-4 text-stone-950" />}
-                onClick={() => {
-                  navigator.clipboard.writeText(revealedLoginOtpData.otp);
-                  setCopiedLoginOtp(true);
-                  setTimeout(() => setCopiedLoginOtp(false), 2000);
-                }}
-              >
-                {copiedLoginOtp ? 'Copied to Clipboard!' : 'Copy 6-Digit Code'}
-              </Button>
-              <Button variant="outline" onClick={() => setRevealedLoginOtpData(null)}>
-                Dismiss
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
     </div>
   );
 }

@@ -18,13 +18,6 @@ export interface AccessControlResult {
 
 export type LoginOtpStatus = 'NOT_GENERATED' | 'PENDING' | 'EXPIRED' | 'USED' | 'LOCKED';
 
-export interface PhotographerOtpInfo {
-  status: LoginOtpStatus;
-  expiresAt?: string;
-  generatedAt?: string;
-  failedAttempts?: number;
-}
-
 export interface User {
   id: string;
   _id?: string;
@@ -44,7 +37,8 @@ export interface User {
   weddingsCount?: number;
   trialDaysRemaining?: number;
   isTrialExpired?: boolean;
-  otpInfo?: PhotographerOtpInfo;
+  /** How the photographer authenticates. */
+  authProvider?: 'FIREBASE_GOOGLE' | 'LEGACY_PASSWORD';
 }
 
 export type DriveFolderStatus = 'NOT_CONNECTED' | 'PENDING' | 'CREATED' | 'FAILED';
@@ -65,6 +59,8 @@ export interface WeddingEvent {
   driveFolderWebViewLink?: string;
   driveFolderStatus?: DriveFolderStatus;
   driveFolderError?: string;
+  driveFolderCreatedAt?: string;
+  driveFolderAttempts?: number;
   driveConnectionStatus: DriveConnectionStatus;
   status: EventStatus;
   createdAt: string;
@@ -97,6 +93,8 @@ export interface DriveStatusResponse {
   connectedAt?: string;
   reconnectRequired?: boolean;
   rootFolderId?: string;
+  /** Exact callback URI this server uses. Must match Google Cloud Console verbatim. */
+  redirectUri?: string;
 }
 
 export interface Invitation {

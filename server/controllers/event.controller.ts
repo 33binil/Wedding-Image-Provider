@@ -2,7 +2,7 @@ import { Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import mongoose from 'mongoose';
 import { z } from 'zod';
-import { Event, DriveConnectionStatus, EventStatus } from '../models/Event.js';
+import { Event, EventStatus } from '../models/Event.js';
 import { AuthenticatedRequest } from '../middleware/auth.middleware.js';
 import { createEventFolderInDrive } from '../services/drive.service.js';
 import QRCode from 'qrcode';
@@ -30,9 +30,11 @@ const updateEventSchema = z.object({
   description: z.string().trim().max(2000).optional(),
   coverImageUrl: z.string().trim().url('Invalid cover image URL').optional().or(z.literal('')),
   status: z.enum(['UPCOMING', 'ACTIVE', 'COMPLETED', 'ARCHIVED'] as [EventStatus, ...EventStatus[]]).optional(),
-  driveFolderId: z.string().trim().optional(),
-  driveFolderName: z.string().trim().optional(),
-  driveConnectionStatus: z.enum(['NOT_CONNECTED', 'CONNECTED', 'ERROR'] as [DriveConnectionStatus, ...DriveConnectionStatus[]]).optional(),
+  // NOTE: driveFolderId / driveFolderName / driveFolderWebViewLink /
+  // driveFolderStatus / driveConnectionStatus are deliberately NOT writable
+  // from the client. They are owned exclusively by the server-side Google
+  // Drive integration so a photographer cannot point their event at another
+  // photographer's Drive folder.
 });
 
 export async function createEvent(
@@ -58,6 +60,7 @@ export async function createEvent(
       publicToken,
       driveConnectionStatus: 'NOT_CONNECTED',
       driveFolderStatus: 'NOT_CONNECTED',
+      driveFolderAttempts: 0,
       status: 'UPCOMING',
     });
 
@@ -69,16 +72,23 @@ export async function createEvent(
         await createEventFolderInDrive(req.user, event);
         driveMessage = 'Google Drive event folder created automatically.';
       } catch (driveErr: any) {
-        console.warn(`[Event Create] Automatic Google Drive folder creation deferred for event ${event._id}:`, driveErr.message);
-        driveMessage = 'Event created successfully. Google Drive folder creation can be retried anytime.';
+        console.warn(
+          `[Event Create] Automatic Google Drive folder creation deferred for event ${event._id}: ${driveErr?.message}`
+        );
+        driveMessage =
+          'Event created successfully. Google Drive folder creation failed and can be retried anytime.';
       }
     }
+
+    // Re-read so the response reflects the folder state written by the
+    // Drive integration (CREATED / FAILED / PENDING).
+    const persistedEvent = await Event.findById(event._id);
 
     res.status(201).json({
       success: true,
       message: 'Wedding event created successfully',
       data: {
-        event,
+        event: persistedEvent,
         driveMessage,
       },
     });
@@ -302,6 +312,8 @@ export async function retryDriveFolder(
       return;
     }
 
+    // Ownership is enforced in the query: a photographer can only retry
+    // folder creation for their own event.
     const event = await Event.findOne({
       _id: id,
       photographerId: req.user!._id,
@@ -320,22 +332,41 @@ export async function retryDriveFolder(
       res.status(400).json({
         success: false,
         error: 'DRIVE_NOT_CONNECTED',
-        message: 'Google Drive is not connected to your studio account. Please connect Google Drive first.',
+        message:
+          'Google Drive is not connected to your studio account. Please connect Google Drive first.',
       });
       return;
     }
 
+    // Track the attempt count so repeated failures are observable.
+    await Event.updateOne(
+      { _id: event._id },
+      { $inc: { driveFolderAttempts: 1 } }
+    );
+
+    // Retrying never creates a new event — it only (re)associates the Drive
+    // folder with the existing event, idempotently.
     const folderResult = await createEventFolderInDrive(req.user!, event);
+
+    const updatedEvent = await Event.findById(event._id);
 
     res.status(200).json({
       success: true,
       message: 'Google Drive folder created and associated successfully.',
       data: {
-        event,
+        event: updatedEvent,
         folder: folderResult,
       },
     });
   } catch (error: any) {
+    if (error?.code && error?.status) {
+      res.status(error.status).json({
+        success: false,
+        error: error.code,
+        message: error.message,
+      });
+      return;
+    }
     next(error);
   }
 }
@@ -379,6 +410,8 @@ export async function getEventDriveFolder(
         driveFolderWebViewLink: event.driveFolderWebViewLink,
         driveFolderStatus: event.driveFolderStatus,
         driveFolderError: event.driveFolderError,
+        driveFolderCreatedAt: event.driveFolderCreatedAt,
+        driveFolderAttempts: event.driveFolderAttempts ?? 0,
         driveConnectionStatus: event.driveConnectionStatus,
       },
     });

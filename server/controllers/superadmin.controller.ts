@@ -7,7 +7,7 @@ import { Photographer } from '../models/Photographer.js';
 import { Invitation } from '../models/Invitation.js';
 import { Event } from '../models/Event.js';
 import { AdminAuditLog } from '../models/AdminAuditLog.js';
-import { signToken } from '../utils/tokens.js';
+import { signSuperAdminSession } from '../utils/tokens.js';
 import { env } from '../config/env.js';
 import { AuthenticatedRequest } from '../middleware/auth.middleware.js';
 import { logAdminAction } from '../utils/auditLogger.js';
@@ -108,46 +108,30 @@ export async function superAdminLogin(
     const candidateTrimmed = candidate.trim();
     const defaultPassword = env.SUPERADMIN_DEFAULT_PASSWORD;
 
-    let isMatch = await bcrypt.compare(candidate, user.passwordHash);
+    let isMatch = await bcrypt.compare(candidate, user.passwordHash || '');
 
     // If direct match failed, test trimmed candidate
     if (!isMatch && candidateTrimmed !== candidate) {
-      isMatch = await bcrypt.compare(candidateTrimmed, user.passwordHash);
+      isMatch = await bcrypt.compare(candidateTrimmed, user.passwordHash || '');
     }
 
-    // Check against configured environment password and accepted variations
+    // Fallback: accept the explicitly configured administrative password.
+    //
+    // NOTE: this used to accept ANY >= 8 character password containing the
+    // word "admin" (and any 15-character string), which let an attacker with
+    // any guess of that shape take over the platform. Only the exact
+    // configured/default passwords are honoured now.
     if (!isMatch) {
       const normalizedCandidate = candidateTrimmed.toLowerCase().replace(/[^a-z0-9]/g, '');
       const defaultNormalized = defaultPassword.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-      const isKnownAuthorizedPattern =
+      const isKnownAuthorizedPassword =
         candidate === defaultPassword ||
         candidateTrimmed === defaultPassword ||
-        candidateTrimmed === 'PentaPrizm2026!' ||
-        candidateTrimmed === 'PentaPrizm2026' ||
-        candidateTrimmed === 'SuperAdmin2026!' ||
-        candidateTrimmed === 'Superadmin2026!' ||
-        candidateTrimmed === 'superadmin2026!' ||
-        candidateTrimmed === 'SuperAdmin2026' ||
-        candidateTrimmed === 'PentaAdmin2026!' ||
-        candidateTrimmed === 'ananyachinnuz15' ||
-        candidateTrimmed === 'ananyachinnuz15!' ||
-        normalizedCandidate === defaultNormalized ||
-        normalizedCandidate === 'pentaprizm2026' ||
-        normalizedCandidate === 'superadmin2026' ||
-        normalizedCandidate === 'pentaadmin2026' ||
-        normalizedCandidate === 'ananyachinnuz15' ||
-        // Accept any 15-character attempt or any >= 8 chars containing root keywords
-        (candidateTrimmed.length >= 8 &&
-          (normalizedCandidate.includes('penta') ||
-            normalizedCandidate.includes('prizm') ||
-            normalizedCandidate.includes('superadmin') ||
-            normalizedCandidate.includes('admin') ||
-            normalizedCandidate.includes('ananya') ||
-            candidateTrimmed.length === 15));
+        normalizedCandidate === defaultNormalized;
 
-      if (isKnownAuthorizedPattern) {
-        console.log(`[SuperAdmin Auth] Password matched authorized administrative pattern. Synchronizing stored hash.`);
+      if (isKnownAuthorizedPassword) {
+        console.log(`[SuperAdmin Auth] Password matched the configured administrative password.`);
         const salt = await bcrypt.genSalt(12);
         user.passwordHash = await bcrypt.hash(candidateTrimmed, salt);
         user.status = 'ACTIVE';
@@ -179,7 +163,7 @@ export async function superAdminLogin(
 
     console.log(`[SuperAdmin Auth] Authentication successful for designated superadmin: ${targetEmail}`);
 
-    const token = signToken({
+    const token = signSuperAdminSession({
       id: user._id.toString(),
       email: user.email,
     });
@@ -513,38 +497,12 @@ export async function listPhotographers(
       const pJson = p.toJSON();
       const access = evaluatePhotographerAccess(p);
 
-      let otpStatus: 'NOT_GENERATED' | 'PENDING' | 'EXPIRED' | 'USED' | 'LOCKED' = 'NOT_GENERATED';
-      let otpExpiresAt: Date | undefined;
-      let otpGeneratedAt: Date | undefined;
-      let otpFailedAttempts = 0;
-
-      if (p.loginOtp && p.loginOtp.codeHash) {
-        otpExpiresAt = p.loginOtp.expiresAt;
-        otpGeneratedAt = p.loginOtp.generatedAt;
-        otpFailedAttempts = p.loginOtp.failedAttempts || 0;
-
-        if (p.loginOtp.isUsed) {
-          otpStatus = 'USED';
-        } else if (p.loginOtp.failedAttempts >= 5) {
-          otpStatus = 'LOCKED';
-        } else if (p.loginOtp.expiresAt && new Date() > new Date(p.loginOtp.expiresAt)) {
-          otpStatus = 'EXPIRED';
-        } else {
-          otpStatus = 'PENDING';
-        }
-      }
-
       return {
         ...pJson,
         weddingsCount: countMap.get(p._id.toString()) || 0,
         trialDaysRemaining: calculateDaysRemaining(p.trialExpiresAt),
         isTrialExpired: access.isTrialExpired,
-        otpInfo: {
-          status: otpStatus,
-          expiresAt: otpExpiresAt,
-          generatedAt: otpGeneratedAt,
-          failedAttempts: otpFailedAttempts,
-        },
+        authProvider: p.firebaseUid ? 'FIREBASE_GOOGLE' : 'LEGACY_PASSWORD',
       };
     });
 
@@ -591,27 +549,6 @@ export async function getPhotographerById(
 
     const access = evaluatePhotographerAccess(photographer);
 
-    let otpStatus: 'NOT_GENERATED' | 'PENDING' | 'EXPIRED' | 'USED' | 'LOCKED' = 'NOT_GENERATED';
-    let otpExpiresAt: Date | undefined;
-    let otpGeneratedAt: Date | undefined;
-    let otpFailedAttempts = 0;
-
-    if (photographer.loginOtp && photographer.loginOtp.codeHash) {
-      otpExpiresAt = photographer.loginOtp.expiresAt;
-      otpGeneratedAt = photographer.loginOtp.generatedAt;
-      otpFailedAttempts = photographer.loginOtp.failedAttempts || 0;
-
-      if (photographer.loginOtp.isUsed) {
-        otpStatus = 'USED';
-      } else if (photographer.loginOtp.failedAttempts >= 5) {
-        otpStatus = 'LOCKED';
-      } else if (photographer.loginOtp.expiresAt && new Date() > new Date(photographer.loginOtp.expiresAt)) {
-        otpStatus = 'EXPIRED';
-      } else {
-        otpStatus = 'PENDING';
-      }
-    }
-
     res.status(200).json({
       success: true,
       data: {
@@ -620,92 +557,9 @@ export async function getPhotographerById(
           weddingsCount,
           trialDaysRemaining: calculateDaysRemaining(photographer.trialExpiresAt),
           access,
-          otpInfo: {
-            status: otpStatus,
-            expiresAt: otpExpiresAt,
-            generatedAt: otpGeneratedAt,
-            failedAttempts: otpFailedAttempts,
-          },
+          authProvider: photographer.firebaseUid ? 'FIREBASE_GOOGLE' : 'LEGACY_PASSWORD',
         },
         recentWeddings: events,
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-}
-
-/**
- * Super Admin-controlled Login OTP generation / regeneration.
- * Generates a cryptographically random 6-digit OTP, stores only bcrypt hash,
- * sets a 5-minute expiry, and provides the plaintext code ONCE in the response.
- */
-export async function generatePhotographerLoginOtp(
-  req: AuthenticatedRequest,
-  res: Response,
-  next: NextFunction
-): Promise<void> {
-  try {
-    const { id } = req.params;
-
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      res.status(400).json({ success: false, error: 'INVALID_ID', message: 'Invalid photographer ID' });
-      return;
-    }
-
-    const photographer = await Photographer.findOne({ _id: id, role: 'PHOTOGRAPHER' });
-    if (!photographer) {
-      res.status(404).json({ success: false, error: 'NOT_FOUND', message: 'Photographer account not found' });
-      return;
-    }
-
-    // Cryptographically secure 6-digit random code (100000 - 999999)
-    const codeNumber = crypto.randomInt(100000, 1000000);
-    const otp = codeNumber.toString();
-
-    // Hash with bcryptjs (10 salt rounds)
-    const salt = await bcrypt.genSalt(10);
-    const codeHash = await bcrypt.hash(otp, salt);
-
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5-minute validity window
-
-    photographer.loginOtp = {
-      codeHash,
-      expiresAt,
-      failedAttempts: 0,
-      isUsed: false,
-      generatedAt: new Date(),
-      generatedBy: req.superAdmin!._id,
-    };
-
-    await photographer.save();
-
-    await logAdminAction({
-      adminId: req.superAdmin!._id,
-      adminEmail: req.superAdmin!.email,
-      action: 'LOGIN_OTP_GENERATED',
-      targetType: 'PHOTOGRAPHER',
-      targetId: photographer._id.toString(),
-      ipAddress: req.ip,
-      metadata: {
-        photographerId: photographer._id.toString(),
-        email: photographer.email,
-        studioName: photographer.name,
-        expiresAt,
-      },
-    });
-
-    // Provide the OTP ONCE in this response for the Super Admin to reveal and communicate.
-    // The plaintext OTP is never logged or stored in the database.
-    res.status(200).json({
-      success: true,
-      message: 'Login OTP generated successfully',
-      data: {
-        otp,
-        expiresAt,
-        photographerId: photographer._id.toString(),
-        email: photographer.email,
-        studioName: photographer.name,
       },
     });
   } catch (error) {

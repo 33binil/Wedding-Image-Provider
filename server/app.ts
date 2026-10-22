@@ -1,4 +1,4 @@
-import express, { Express } from 'express';
+import express, { Express, RequestHandler } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
@@ -10,7 +10,17 @@ import superadminRoutes from './routes/superadmin.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware.js';
 import { generalLimiter } from './middleware/rateLimiter.js';
 
-export function createApp(): Express {
+export interface CreateAppOptions {
+  /**
+   * Middleware executed for every /api request BEFORE the routers.
+   * Used by the local dev server to wait for the database connection to be
+   * ready. It must be registered before the route handlers, otherwise it would
+   * never run.
+   */
+  apiGate?: RequestHandler;
+}
+
+export function createApp(options: CreateAppOptions = {}): Express {
   const app = express();
 
   // Trust first proxy (Cloud Run / AI Studio preview environment)
@@ -55,6 +65,12 @@ export function createApp(): Express {
   // General rate limiting on /api
   app.use('/api', generalLimiter);
 
+  // Database-readiness gate (local dev server). Registered before the routers
+  // so API requests actually wait for the connection.
+  if (options.apiGate) {
+    app.use('/api', options.apiGate);
+  }
+
   // API Health check
   app.get('/api/health', (_req, res) => {
     res.json({
@@ -71,6 +87,16 @@ export function createApp(): Express {
   app.use('/api/public', publicRoutes);
   app.use('/api/integrations/google-drive', driveRoutes);
   app.use('/api/superadmin', superadminRoutes);
+
+  // API error handlers.
+  //
+  // These live inside createApp() (rather than only in server.ts) so that the
+  // Vercel serverless entry point — which only calls createApp() — also
+  // returns structured JSON errors instead of Express' default HTML error
+  // page. The not-found handler is scoped to /api so the SPA fallback still
+  // works for frontend routes.
+  app.use('/api', notFoundHandler);
+  app.use(errorHandler);
 
   return app;
 }

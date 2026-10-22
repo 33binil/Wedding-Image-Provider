@@ -11,7 +11,6 @@ import {
   getPhotographerById,
   updatePhotographerStatus,
   updatePhotographerTrial,
-  generatePhotographerLoginOtp,
   getAuditLogs,
 } from '../controllers/superadmin.controller.js';
 import { requireSuperAdmin } from '../middleware/auth.middleware.js';
@@ -39,7 +38,6 @@ router.get('/photographers', listPhotographers);
 router.get('/photographers/:id', getPhotographerById);
 router.patch('/photographers/:id/status', updatePhotographerStatus);
 router.patch('/photographers/:id/trial', updatePhotographerTrial);
-router.post('/photographers/:id/login-otp', generatePhotographerLoginOtp);
 
 // Audit logs
 router.get('/audit-logs', getAuditLogs);

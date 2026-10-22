@@ -1,36 +1,52 @@
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 
+export type SessionType = 'PHOTOGRAPHER_SESSION' | 'SUPERADMIN_SESSION';
+
 export interface TokenPayload {
   id: string;
   email: string;
-  type?: 'SESSION' | 'PRE_AUTH';
+  type: SessionType;
 }
 
-export function signToken(payload: { id: string; email: string }): string {
-  return jwt.sign({ ...payload, type: 'SESSION' }, env.JWT_SECRET, {
-    expiresIn: '7d',
-  });
+/**
+ * Signs a photographer session.
+ *
+ * Photographer sessions are distinct from superadmin sessions by token type,
+ * so a session token can never be replayed against the other surface even if
+ * the cookie names were somehow confused.
+ */
+export function signPhotographerSession(payload: { id: string; email: string }): string {
+  return jwt.sign(
+    { ...payload, type: 'PHOTOGRAPHER_SESSION' as SessionType },
+    env.JWT_SECRET,
+    { expiresIn: '7d' }
+  );
 }
 
-export function signPreAuthToken(payload: { id: string; email: string }): string {
-  return jwt.sign({ ...payload, type: 'PRE_AUTH' }, env.JWT_SECRET, {
-    expiresIn: '10m', // 10 minutes short-lived restricted session
-  });
+/**
+ * Signs a superadmin session. The lifetime matches the superadmin cookie.
+ */
+export function signSuperAdminSession(payload: { id: string; email: string }): string {
+  return jwt.sign(
+    { ...payload, type: 'SUPERADMIN_SESSION' as SessionType },
+    env.JWT_SECRET,
+    { expiresIn: '3d' }
+  );
 }
 
-export function verifyToken(token: string): TokenPayload {
+export function verifyPhotographerSession(token: string): TokenPayload {
   const payload = jwt.verify(token, env.JWT_SECRET) as TokenPayload;
-  if (payload.type === 'PRE_AUTH') {
-    throw new Error('Pre-authentication token cannot be used as an authenticated session token');
+  if (payload.type !== 'PHOTOGRAPHER_SESSION') {
+    throw new Error('This token is not a valid photographer session');
   }
   return payload;
 }
 
-export function verifyPreAuthToken(token: string): TokenPayload {
+export function verifySuperAdminSession(token: string): TokenPayload {
   const payload = jwt.verify(token, env.JWT_SECRET) as TokenPayload;
-  if (payload.type !== 'PRE_AUTH') {
-    throw new Error('Invalid pre-authentication token type');
+  if (payload.type !== 'SUPERADMIN_SESSION') {
+    throw new Error('This token is not a valid superadmin session');
   }
   return payload;
 }

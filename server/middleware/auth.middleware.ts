@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyToken } from '../utils/tokens.js';
+import { verifyPhotographerSession, verifySuperAdminSession } from '../utils/tokens.js';
 import { Photographer, IPhotographer } from '../models/Photographer.js';
 import { env } from '../config/env.js';
 import { evaluatePhotographerAccess } from '../services/accessControl.service.js';
@@ -9,6 +9,12 @@ export interface AuthenticatedRequest extends Request {
   superAdmin?: IPhotographer;
 }
 
+/**
+ * Requires a valid photographer session.
+ *
+ * Superadmin sessions are explicitly rejected here: the two surfaces use
+ * separate cookies AND separate token types.
+ */
 export async function requireAuth(
   req: AuthenticatedRequest,
   res: Response,
@@ -25,12 +31,12 @@ export async function requireAuth(
       res.status(401).json({
         success: false,
         error: 'UNAUTHORIZED',
-        message: 'Authentication session not found. Please log in.',
+        message: 'Authentication session not found. Please sign in with Google.',
       });
       return;
     }
 
-    const payload = verifyToken(token);
+    const payload = verifyPhotographerSession(token);
     const user = await Photographer.findById(payload.id);
 
     if (!user) {
@@ -48,7 +54,7 @@ export async function requireAuth(
     res.status(401).json({
       success: false,
       error: 'INVALID_TOKEN',
-      message: 'Your session has expired or is invalid. Please log in again.',
+      message: 'Your session has expired or is invalid. Please sign in again.',
     });
   }
 }
@@ -156,7 +162,7 @@ export async function requireSuperAdmin(
       return;
     }
 
-    const payload = verifyToken(token);
+    const payload = verifySuperAdminSession(token);
     const admin = await Photographer.findById(payload.id);
 
     if (!admin || admin.role !== 'SUPERADMIN') {

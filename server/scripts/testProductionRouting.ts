@@ -182,68 +182,73 @@ async function runRoutingVerification() {
     '6. GET /api/superadmin/photographers returns directory list with pagination'
   );
 
-  // 7. Photographer login step 1: POST /api/auth/login
-  const testPhotogEmail = `studio_test_${Date.now()}@example.com`;
-  // First register photographer
-  await fetch(`${BASE}/api/auth/register`, {
+  // 7. The obsolete photographer password / OTP endpoints must be gone.
+  const removedRegisterRes = await fetch(`${BASE}/api/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       name: 'Highland Photo Studio',
-      email: testPhotogEmail,
+      email: `studio_test_${Date.now()}@example.com`,
       password: 'StudioPassword2026!',
       confirmPassword: 'StudioPassword2026!',
     }),
   });
-
-  const photogLoginRes = await fetch(`${BASE}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email: testPhotogEmail,
-      password: 'StudioPassword2026!',
-    }),
-  });
-  const photogLoginData = await photogLoginRes.json();
-  const preAuthToken = photogLoginData.data?.preAuthToken;
   assert(
-    photogLoginRes.status === 200 &&
-      photogLoginData.data?.requiresOtp === true &&
-      Boolean(preAuthToken),
-    '7. POST /api/auth/login returns requiresOtp: true and restricted preAuthToken'
+    removedRegisterRes.status === 404,
+    '7. POST /api/auth/register is removed (404) — photographers sign in with Google'
   );
 
-  // 8. Super Admin generates OTP for this photographer
-  const listAfterReg = await fetch(`${BASE}/api/superadmin/photographers?search=${testPhotogEmail}`, {
-    headers: { Authorization: `Bearer ${superAdminToken}` },
-  });
-  const listAfterRegData = await listAfterReg.json();
-  const photogId = listAfterRegData.data?.photographers?.[0]?._id;
-
-  const genOtpRes = await fetch(`${BASE}/api/superadmin/photographers/${photogId}/login-otp`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${superAdminToken}` },
-  });
-  const genOtpData = await genOtpRes.json();
-  const validOtp = genOtpData.data?.otp;
-
-  // 9. Photographer login step 2: POST /api/auth/verify-login-otp
-  const verifyOtpRes = await fetch(`${BASE}/api/auth/verify-login-otp`, {
+  const removedLoginRes = await fetch(`${BASE}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      preAuthToken,
-      otp: validOtp,
-    }),
+    body: JSON.stringify({ email: 'x@example.com', password: 'whatever123' }),
   });
-  const verifyOtpData = await verifyOtpRes.json();
-  const photogCookie = verifyOtpRes.headers.get('set-cookie') || '';
   assert(
-    verifyOtpRes.status === 200 &&
-      verifyOtpData.success === true &&
-      verifyOtpData.data?.user?.status === 'ACTIVE' &&
-      photogCookie.includes('wedding_auth_token'),
-    '8. POST /api/auth/verify-login-otp succeeds with correct OTP and sets wedding_auth_token cookie'
+    removedLoginRes.status === 404,
+    '8. POST /api/auth/login is removed (404) — no password login'
+  );
+
+  const removedOtpRes = await fetch(`${BASE}/api/auth/verify-login-otp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ otp: '123456' }),
+  });
+  assert(
+    removedOtpRes.status === 404,
+    '9. POST /api/auth/verify-login-otp is removed (404) — no OTP login'
+  );
+
+  // 10. The Firebase web configuration is served publicly (public identifiers only).
+  const firebaseConfigRes = await fetch(`${BASE}/api/auth/firebase-config`);
+  const firebaseConfigData = await firebaseConfigRes.json();
+  assert(
+    firebaseConfigRes.status === 200 && 'configured' in firebaseConfigData.data,
+    '10. GET /api/auth/firebase-config responds with the Firebase configuration state'
+  );
+  assert(
+    !JSON.stringify(firebaseConfigData).includes('private_key'),
+    '11. GET /api/auth/firebase-config never exposes service-account material'
+  );
+
+  // 12. Google sign-in rejects an unverifiable ID token.
+  const badSignInRes = await fetch(`${BASE}/api/auth/google`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken: 'not-a-real-firebase-id-token' }),
+  });
+  const badSignInData = await badSignInRes.json();
+  assert(
+    badSignInRes.status === 401 || badSignInRes.status === 503,
+    '12. POST /api/auth/google rejects an unverifiable Firebase ID token'
+  );
+
+  // 13. The Drive OAuth callback rejects a request with no state.
+  const callbackRes = await fetch(`${BASE}/api/integrations/google-drive/callback`, {
+    redirect: 'manual',
+  });
+  assert(
+    callbackRes.status === 302,
+    '13. GET /api/integrations/google-drive/callback redirects when no state is supplied'
   );
 
   console.log(`\n🎉 ROUTING & AUTH RESULTS: ${passed}/${total} assertions passed successfully!`);

@@ -4,7 +4,6 @@ import { AuthProvider, useAuth } from './hooks/useAuth.js';
 import { SuperAdminAuthProvider, useSuperAdminAuth } from './hooks/useSuperAdminAuth.js';
 import { PhotographerLayout } from './components/layout/PhotographerLayout.js';
 import Login from './pages/Login.js';
-import Register from './pages/Register.js';
 import Dashboard from './pages/Dashboard.js';
 import CreateEvent from './pages/CreateEvent.js';
 import EventDetails from './pages/EventDetails.js';
@@ -40,9 +39,8 @@ export default function App() {
               {/* Root routing */}
               <Route path="/" element={<RootRedirect />} />
 
-              {/* Public Photographer Auth Routes */}
+              {/* Public Photographer Auth Route */}
               <Route path="/login" element={<Login />} />
-              <Route path="/register" element={<Register />} />
 
               {/* Penta Prizm Super Admin Routes */}
               <Route path="/superadmin" element={<SuperAdminGate />} />

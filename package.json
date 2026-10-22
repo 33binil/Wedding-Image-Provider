@@ -10,9 +10,14 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "test": "node --env-file=server/tests/.env.test --import tsx --test server/tests/*.test.ts",
+    "verify:drive:live": "tsx server/scripts/verifyGoogleDriveLive.ts",
+    "migrate:firebase": "tsx server/scripts/migrateToFirebaseAuth.ts",
     "superadmin:reset": "tsx server/scripts/resetSuperadminPassword.ts"
   },
   "dependencies": {
+    "@firebase/app": "^0.16.2",
+    "@firebase/auth": "^1.13.6",
     "@google/genai": "^2.4.0",
     "@hookform/resolvers": "^5.9.2",
     "@tailwindcss/vite": "^4.3.3",
@@ -24,6 +29,8 @@
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "express-rate-limit": "^8.7.1",
+    "firebase-admin": "^14.5.0",
+    "google-auth-library": "^10.9.1",
     "googleapis": "^186.0.0",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
@@ -39,6 +46,23 @@
     "tsx": "^4.21.0",
     "vite": "^8.3.0",
     "zod": "^4.6.7"
+  },
+  "optionalDependencies": {
+    "@rolldown/binding-darwin-arm64": "1.2.15",
+    "@rolldown/binding-darwin-x64": "1.2.15",
+    "@rolldown/binding-linux-x64-gnu": "1.2.15",
+    "@rolldown/binding-linux-x64-musl": "1.2.15",
+    "@tailwindcss/oxide-darwin-arm64": "4.3.3",
+    "@tailwindcss/oxide-darwin-x64": "4.3.3",
+    "@tailwindcss/oxide-linux-x64-gnu": "4.3.3",
+    "@tailwindcss/oxide-linux-x64-musl": "4.3.3",
+    "@typescript/typescript-darwin-arm64": "7.0.2",
+    "@typescript/typescript-darwin-x64": "7.0.2",
+    "@typescript/typescript-linux-x64": "7.0.2",
+    "lightningcss-darwin-arm64": "1.32.0",
+    "lightningcss-darwin-x64": "1.32.0",
+    "lightningcss-linux-x64-gnu": "1.32.0",
+    "lightningcss-linux-x64-musl": "1.32.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
