@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 import { z } from 'zod';
 import { Event, DriveConnectionStatus, EventStatus } from '../models/Event.js';
 import { AuthenticatedRequest } from '../middleware/auth.middleware.js';
+import { createEventFolderInDrive } from '../services/drive.service.js';
 import QRCode from 'qrcode';
 
 const createEventSchema = z.object({
@@ -56,14 +57,29 @@ export async function createEvent(
       coverImageUrl: validated.coverImageUrl || undefined,
       publicToken,
       driveConnectionStatus: 'NOT_CONNECTED',
+      driveFolderStatus: 'NOT_CONNECTED',
       status: 'UPCOMING',
     });
+
+    let driveMessage = 'Connect Google Drive to create the folder automatically.';
+
+    // If photographer has Google Drive connected, automatically create event folder
+    if (req.user?.googleDrive?.connected) {
+      try {
+        await createEventFolderInDrive(req.user, event);
+        driveMessage = 'Google Drive event folder created automatically.';
+      } catch (driveErr: any) {
+        console.warn(`[Event Create] Automatic Google Drive folder creation deferred for event ${event._id}:`, driveErr.message);
+        driveMessage = 'Event created successfully. Google Drive folder creation can be retried anytime.';
+      }
+    }
 
     res.status(201).json({
       success: true,
       message: 'Wedding event created successfully',
       data: {
         event,
+        driveMessage,
       },
     });
   } catch (error) {
@@ -263,6 +279,108 @@ export async function deleteEvent(
     res.status(200).json({
       success: true,
       message: 'Event deleted successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function retryDriveFolder(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({
+        success: false,
+        error: 'INVALID_ID',
+        message: 'Invalid event identifier',
+      });
+      return;
+    }
+
+    const event = await Event.findOne({
+      _id: id,
+      photographerId: req.user!._id,
+    });
+
+    if (!event) {
+      res.status(404).json({
+        success: false,
+        error: 'EVENT_NOT_FOUND',
+        message: 'Event not found or you do not have permission to access it.',
+      });
+      return;
+    }
+
+    if (!req.user!.googleDrive?.connected) {
+      res.status(400).json({
+        success: false,
+        error: 'DRIVE_NOT_CONNECTED',
+        message: 'Google Drive is not connected to your studio account. Please connect Google Drive first.',
+      });
+      return;
+    }
+
+    const folderResult = await createEventFolderInDrive(req.user!, event);
+
+    res.status(200).json({
+      success: true,
+      message: 'Google Drive folder created and associated successfully.',
+      data: {
+        event,
+        folder: folderResult,
+      },
+    });
+  } catch (error: any) {
+    next(error);
+  }
+}
+
+export async function getEventDriveFolder(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(400).json({
+        success: false,
+        error: 'INVALID_ID',
+        message: 'Invalid event identifier',
+      });
+      return;
+    }
+
+    const event = await Event.findOne({
+      _id: id,
+      photographerId: req.user!._id,
+    });
+
+    if (!event) {
+      res.status(404).json({
+        success: false,
+        error: 'EVENT_NOT_FOUND',
+        message: 'Event not found or you do not have permission to access it.',
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        driveFolderId: event.driveFolderId,
+        driveFolderName: event.driveFolderName,
+        driveFolderWebViewLink: event.driveFolderWebViewLink,
+        driveFolderStatus: event.driveFolderStatus,
+        driveFolderError: event.driveFolderError,
+        driveConnectionStatus: event.driveConnectionStatus,
+      },
     });
   } catch (error) {
     next(error);

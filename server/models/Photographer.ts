@@ -8,6 +8,8 @@ export interface IGoogleDrive {
   googleEmail?: string;
   refreshTokenEncrypted?: string;
   connectedAt?: Date;
+  rootFolderId?: string;
+  reconnectRequired?: boolean;
 }
 
 export interface ILoginOtp {
@@ -87,6 +89,14 @@ const PhotographerSchema = new Schema<IPhotographer>(
       connectedAt: {
         type: Date,
       },
+      rootFolderId: {
+        type: String,
+        trim: true,
+      },
+      reconnectRequired: {
+        type: Boolean,
+        default: false,
+      },
     },
     loginOtp: {
       codeHash: {
@@ -94,7 +104,6 @@ const PhotographerSchema = new Schema<IPhotographer>(
       },
       expiresAt: {
         type: Date,
-        index: true,
       },
       failedAttempts: {
         type: Number,

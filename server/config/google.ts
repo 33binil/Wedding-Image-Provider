@@ -10,20 +10,22 @@ export function isGoogleDriveConfigured(): boolean {
   );
 }
 
-export function getOAuth2Client() {
+export function getOAuth2Client(overrideRedirectUri?: string) {
   if (!isGoogleDriveConfigured()) {
     throw new Error('Google OAuth credentials are not configured in environment variables.');
   }
 
+  const redirectUri = overrideRedirectUri || env.GOOGLE_REDIRECT_URI;
+
   return new google.auth.OAuth2(
     env.GOOGLE_CLIENT_ID,
     env.GOOGLE_CLIENT_SECRET,
-    env.GOOGLE_REDIRECT_URI
+    redirectUri
   );
 }
 
+// Minimum suitable Drive permission: drive.file (per-file/folder access for items created by this app)
 export const GOOGLE_DRIVE_SCOPES = [
   'https://www.googleapis.com/auth/userinfo.email',
   'https://www.googleapis.com/auth/drive.file',
-  'https://www.googleapis.com/auth/drive.readonly',
 ];

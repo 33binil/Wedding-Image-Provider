@@ -77,4 +77,20 @@ export const eventService = {
   async disconnectDrive(): Promise<void> {
     await api.delete('/integrations/google-drive/disconnect');
   },
+
+  async retryDriveFolderCreation(eventId: string): Promise<WeddingEvent> {
+    const res = await api.post(`/events/${eventId}/drive-folder/retry`);
+    return res.data.data.event;
+  },
+
+  async getDriveFolderInfo(eventId: string): Promise<{
+    driveFolderId?: string;
+    driveFolderName?: string;
+    driveFolderWebViewLink?: string;
+    driveFolderStatus: string;
+    driveFolderError?: string;
+  }> {
+    const res = await api.get(`/events/${eventId}/drive-folder`);
+    return res.data.data;
+  },
 };

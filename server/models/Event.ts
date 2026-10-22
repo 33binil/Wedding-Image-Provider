@@ -1,6 +1,7 @@
 import mongoose, { Document, Schema, Types } from 'mongoose';
 
 export type DriveConnectionStatus = 'NOT_CONNECTED' | 'CONNECTED' | 'ERROR';
+export type DriveFolderStatus = 'NOT_CONNECTED' | 'PENDING' | 'CREATED' | 'FAILED';
 export type EventStatus = 'UPCOMING' | 'ACTIVE' | 'COMPLETED' | 'ARCHIVED';
 
 export interface IEvent extends Document {
@@ -15,6 +16,9 @@ export interface IEvent extends Document {
   publicToken: string;
   driveFolderId?: string;
   driveFolderName?: string;
+  driveFolderWebViewLink?: string;
+  driveFolderStatus: DriveFolderStatus;
+  driveFolderError?: string;
   driveConnectionStatus: DriveConnectionStatus;
   status: EventStatus;
   createdAt: Date;
@@ -75,6 +79,19 @@ const EventSchema = new Schema<IEvent>(
       trim: true,
     },
     driveFolderName: {
+      type: String,
+      trim: true,
+    },
+    driveFolderWebViewLink: {
+      type: String,
+      trim: true,
+    },
+    driveFolderStatus: {
+      type: String,
+      enum: ['NOT_CONNECTED', 'PENDING', 'CREATED', 'FAILED'],
+      default: 'NOT_CONNECTED',
+    },
+    driveFolderError: {
       type: String,
       trim: true,
     },

@@ -20,12 +20,13 @@ export function SuperAdminAuthProvider({ children }: { children: React.ReactNode
   const refreshAdmin = useCallback(async () => {
     try {
       const adminData = await superadminService.getMe();
-      if (adminData.role === 'SUPERADMIN') {
+      if (adminData && adminData.role === 'SUPERADMIN') {
         setAdmin(adminData);
       } else {
         setAdmin(null);
       }
     } catch {
+      // Missing or expired session on initial check is normal before login - do not surface error
       setAdmin(null);
     } finally {
       setLoading(false);
@@ -38,6 +39,9 @@ export function SuperAdminAuthProvider({ children }: { children: React.ReactNode
 
   const login = async (payload: { email: string; password: string }): Promise<User> => {
     const data = await superadminService.login(payload);
+    if (data.token) {
+      localStorage.setItem('penta_superadmin_token', data.token);
+    }
     setAdmin(data.admin);
     return data.admin;
   };
@@ -46,6 +50,7 @@ export function SuperAdminAuthProvider({ children }: { children: React.ReactNode
     try {
       await superadminService.logout();
     } finally {
+      localStorage.removeItem('penta_superadmin_token');
       setAdmin(null);
     }
   };

@@ -1,14 +1,23 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Sparkles, HeartHandshake } from 'lucide-react';
+import { ArrowLeft, HardDrive, CheckCircle2, HeartHandshake } from 'lucide-react';
 import { EventForm, EventFormData } from '../components/events/EventForm.js';
 import { eventService } from '../services/event.service.js';
+import { DriveStatusResponse } from '../types/index.js';
 import { useToast } from '../hooks/useToast.js';
 
 export default function CreateEvent() {
   const navigate = useNavigate();
-  const { success, error: showError } = useToast();
+  const { success, info, error: showError } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [driveStatus, setDriveStatus] = useState<DriveStatusResponse | null>(null);
+
+  useEffect(() => {
+    eventService
+      .getDriveStatus()
+      .then((res) => setDriveStatus(res))
+      .catch((err) => console.warn('Could not check Drive status:', err.message));
+  }, []);
 
   const handleSubmit = async (data: EventFormData) => {
     try {
@@ -23,7 +32,12 @@ export default function CreateEvent() {
         coverImageUrl: data.coverImageUrl || undefined,
       });
 
-      success('Wedding Created', 'Unique guest URL and printable QR code generated.');
+      if (driveStatus?.connected) {
+        success('Wedding Created', 'Event registered and Google Drive album folder created automatically.');
+      } else {
+        info('Wedding Created', 'Event registered. Connect Google Drive anytime to create the folder automatically.');
+      }
+
       navigate(`/events/${newEvent._id}`);
     } catch (err: any) {
       showError('Failed to Create Event', err.message || 'Please check your inputs.');
@@ -59,6 +73,35 @@ export default function CreateEvent() {
             </p>
           </div>
         </div>
+
+        {/* Google Drive Status Notification */}
+        {driveStatus && (
+          driveStatus.connected ? (
+            <div className="mb-6 p-3 bg-emerald-50/80 border border-emerald-200/80 rounded-xl flex items-center justify-between text-xs text-emerald-950 flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  A Google Drive album folder will be created automatically in <strong>"Wedding AI Photo Finder"</strong>.
+                </span>
+              </div>
+              {driveStatus.googleEmail && (
+                <span className="font-mono text-[11px] text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
+                  {driveStatus.googleEmail}
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="mb-6 p-3.5 bg-[#FAF8F5] border border-[#E8DEC9] rounded-xl flex items-start gap-2.5 text-xs text-stone-700">
+              <HardDrive className="w-4 h-4 text-stone-500 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-semibold text-stone-900 block">
+                  Connect Google Drive to create the folder automatically
+                </span>
+                Google Drive is not connected yet. You can create this wedding celebration now, and connect Google Drive anytime from your dashboard to create the folder automatically.
+              </div>
+            </div>
+          )
+        )}
 
         <EventForm
           onSubmit={handleSubmit}

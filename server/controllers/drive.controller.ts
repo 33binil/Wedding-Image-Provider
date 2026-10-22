@@ -10,6 +10,7 @@ import {
 import { encrypt } from '../utils/encryption.js';
 import { Photographer } from '../models/Photographer.js';
 import { env } from '../config/env.js';
+import { revokeDriveAccess } from '../services/drive.service.js';
 
 const OAUTH_STATE_COOKIE = 'wedding_oauth_state';
 
@@ -21,6 +22,8 @@ export async function getDriveStatus(
   const connected = Boolean(req.user?.googleDrive?.connected);
   const googleEmail = req.user?.googleDrive?.googleEmail;
   const connectedAt = req.user?.googleDrive?.connectedAt;
+  const reconnectRequired = Boolean(req.user?.googleDrive?.reconnectRequired);
+  const rootFolderId = req.user?.googleDrive?.rootFolderId;
 
   res.status(200).json({
     success: true,
@@ -29,6 +32,8 @@ export async function getDriveStatus(
       connected,
       googleEmail,
       connectedAt,
+      reconnectRequired,
+      rootFolderId,
     },
   });
 }
@@ -45,7 +50,7 @@ export async function initiateConnect(
         configured: false,
         error: 'GOOGLE_DRIVE_NOT_CONFIGURED',
         message:
-          'Google Drive OAuth is not yet configured on this server. Please add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to the server environment.',
+          'Google Drive OAuth is not yet configured on this server. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.',
       });
       return;
     }
@@ -61,11 +66,12 @@ export async function initiateConnect(
     });
 
     const stateToken = Buffer.from(statePayload).toString('base64url');
+    const isProduction = env.NODE_ENV === 'production' || process.env.VERCEL === '1';
 
     // Store state in httpOnly cookie with 10-minute expiry
     res.cookie(OAUTH_STATE_COOKIE, stateToken, {
       httpOnly: true,
-      secure: env.NODE_ENV === 'production',
+      secure: isProduction,
       sameSite: 'lax',
       maxAge: 10 * 60 * 1000, // 10 minutes
       path: '/',
@@ -79,7 +85,7 @@ export async function initiateConnect(
     });
 
     // If client requested JSON (e.g. from axios), return the URL; otherwise redirect
-    if (req.headers.accept?.includes('application/json')) {
+    if (req.headers.accept?.includes('application/json') || req.query.format === 'json') {
       res.status(200).json({
         success: true,
         data: {
@@ -100,51 +106,46 @@ export async function handleCallback(
   res: Response,
   next: NextFunction
 ): Promise<void> {
+  const isProduction = env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+
   try {
     const { code, state, error: oauthError } = req.query;
 
     if (oauthError) {
-      console.error('Google OAuth callback returned error:', oauthError);
+      console.error('[Google Drive OAuth] Callback returned error:', oauthError);
       res.redirect('/dashboard?drive_error=access_denied');
       return;
     }
 
     if (!code || typeof code !== 'string' || !state || typeof state !== 'string') {
-      res.status(400).json({
-        success: false,
-        error: 'INVALID_CALLBACK_PARAMS',
-        message: 'Missing required code or state parameter.',
-      });
+      res.redirect('/dashboard?drive_error=missing_params');
       return;
     }
 
     const cookieState = req.cookies?.[OAUTH_STATE_COOKIE];
     if (!cookieState || cookieState !== state) {
-      res.status(403).json({
-        success: false,
-        error: 'INVALID_OAUTH_STATE',
-        message: 'OAuth state parameter verification failed. Potential CSRF detected.',
-      });
+      console.warn('[Google Drive OAuth] State mismatch. Potential CSRF or expired cookie.');
+      res.redirect('/dashboard?drive_error=invalid_state');
       return;
     }
 
     // Clear state cookie
-    res.clearCookie(OAUTH_STATE_COOKIE, { path: '/' });
+    res.clearCookie(OAUTH_STATE_COOKIE, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: 'lax',
+      path: '/',
+    });
 
     // Decode state
     let stateData: { userId: string; createdAt: number };
     try {
       stateData = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'));
-      // Verify state age (10 minutes max)
       if (Date.now() - stateData.createdAt > 10 * 60 * 1000) {
         throw new Error('State expired');
       }
     } catch {
-      res.status(400).json({
-        success: false,
-        error: 'MALFORMED_STATE',
-        message: 'Invalid or expired state payload.',
-      });
+      res.redirect('/dashboard?drive_error=expired_state');
       return;
     }
 
@@ -164,11 +165,7 @@ export async function handleCallback(
 
     const photographer = await Photographer.findById(stateData.userId);
     if (!photographer) {
-      res.status(404).json({
-        success: false,
-        error: 'USER_NOT_FOUND',
-        message: 'Associated photographer account not found.',
-      });
+      res.redirect('/dashboard?drive_error=user_not_found');
       return;
     }
 
@@ -182,13 +179,16 @@ export async function handleCallback(
       googleEmail,
       refreshTokenEncrypted,
       connectedAt: new Date(),
+      rootFolderId: photographer.googleDrive.rootFolderId,
+      reconnectRequired: false,
     };
 
     await photographer.save();
 
     res.redirect('/dashboard?drive=connected');
   } catch (error) {
-    next(error);
+    console.error('[Google Drive OAuth] Callback processing error:', error);
+    res.redirect('/dashboard?drive_error=token_exchange_failed');
   }
 }
 
@@ -199,19 +199,11 @@ export async function disconnectDrive(
 ): Promise<void> {
   try {
     const photographer = req.user!;
-
-    photographer.googleDrive = {
-      connected: false,
-      googleEmail: undefined,
-      refreshTokenEncrypted: undefined,
-      connectedAt: undefined,
-    };
-
-    await photographer.save();
+    await revokeDriveAccess(photographer);
 
     res.status(200).json({
       success: true,
-      message: 'Google Drive disconnected successfully',
+      message: 'Google Drive disconnected and revoked successfully',
     });
   } catch (error) {
     next(error);

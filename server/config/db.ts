@@ -4,13 +4,19 @@ import { env } from './env.js';
 let mongodInstance: any = null;
 
 export async function connectDB(): Promise<void> {
+  // If already connected, reuse existing connection (critical for serverless environments like Vercel)
+  if (mongoose.connection.readyState === 1) {
+    return;
+  }
+
   try {
-    let mongoUri = env.MONGODB_URI;
+    let mongoUri = env.MONGODB_URI || process.env.MONGODB_URI || '';
+    const isProductionOrVercel = env.NODE_ENV === 'production' || process.env.VERCEL === '1';
 
     if (!mongoUri) {
-      if (env.NODE_ENV === 'production') {
+      if (isProductionOrVercel) {
         throw new Error(
-          'FATAL: MONGODB_URI environment variable is required in production. Embedded in-memory MongoDB is strictly disabled in production.'
+          'FATAL: MONGODB_URI environment variable is required for production and Vercel deployments. In-memory database fallback is strictly disabled.'
         );
       }
       console.log('ℹ️ MONGODB_URI not provided. Initializing embedded MongoDB engine for local development...');
@@ -19,32 +25,35 @@ export async function connectDB(): Promise<void> {
       mongoUri = mongodInstance.getUri();
       console.log('✅ Embedded MongoDB started at:', mongoUri);
     } else {
-      console.log('Connecting to persistent MongoDB at configured URI...');
+      console.log('Connecting to persistent MongoDB Atlas cluster...');
     }
 
     mongoose.set('strictQuery', true);
     await mongoose.connect(mongoUri, {
-      serverSelectionTimeoutMS: 8000,
+      dbName: 'wedding_ai_photo_finder',
+      serverSelectionTimeoutMS: 10000,
     });
 
     console.log('✨ MongoDB Connected Successfully:', mongoose.connection.host);
   } catch (error) {
     console.error('❌ MongoDB Connection Error:', error);
 
-    // In production, never fall back to ephemeral in-memory database
-    if (env.NODE_ENV === 'production') {
-      console.error('Production database connection failed. Halting process to protect data persistence.');
+    const isProductionOrVercel = env.NODE_ENV === 'production' || process.env.VERCEL === '1';
+    if (isProductionOrVercel) {
+      console.error('Production database connection failed. Halting process to preserve data persistence.');
       throw error;
     }
 
-    // In non-production development, fallback to embedded Mongo if Atlas is unreachable
+    // In local development, fallback to embedded Mongo only if persistent Atlas was unreachable and no memory server exists
     if (!mongodInstance) {
       console.log('Falling back to local development MongoDB...');
       try {
         const { MongoMemoryServer } = await import('mongodb-memory-server');
         mongodInstance = await MongoMemoryServer.create();
         const fallbackUri = mongodInstance.getUri();
-        await mongoose.connect(fallbackUri);
+        await mongoose.connect(fallbackUri, {
+          dbName: 'wedding_ai_photo_finder',
+        });
         console.log('✅ Fallback MongoDB started successfully at:', fallbackUri);
         return;
       } catch (fallbackErr) {

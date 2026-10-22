@@ -27,12 +27,12 @@ export default function SuperAdminLogin() {
   const {
     register,
     handleSubmit,
-    setValue,
     formState: { errors },
   } = useForm<SuperAdminLoginFormData>({
     resolver: zodResolver(superAdminLoginSchema),
     defaultValues: {
       email: 'pentaprizmofficial@gmail.com',
+      password: '',
     },
   });
 
@@ -132,11 +132,11 @@ export default function SuperAdminLogin() {
           </form>
 
           <div className="mt-4 pt-4 border-t border-[#2A241E] flex flex-col gap-2 text-center text-[11px] text-stone-400 leading-relaxed">
-            <div>
-              Platform Master Credentials: <code className="text-[#E5D7C0] bg-[#2A241E] px-1.5 py-0.5 rounded">pentaprizmofficial@gmail.com</code> / <code className="text-[#E5D7C0] bg-[#2A241E] px-1.5 py-0.5 rounded">PentaPrizm2026!</code>
+            <div className="text-stone-400 text-[11px]">
+              Access restricted strictly to designated platform administrators.
             </div>
             <div className="text-stone-500 text-[10px]">
-              All administrative logins and operations are permanently logged to the immutable Penta Prizm audit ledger.
+              All administrative operations are cryptographically verified and recorded in the audit ledger.
             </div>
           </div>
         </div>

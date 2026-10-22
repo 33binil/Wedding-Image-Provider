@@ -47,6 +47,8 @@ export interface User {
   otpInfo?: PhotographerOtpInfo;
 }
 
+export type DriveFolderStatus = 'NOT_CONNECTED' | 'PENDING' | 'CREATED' | 'FAILED';
+
 export interface WeddingEvent {
   _id: string;
   photographerId: string;
@@ -60,6 +62,9 @@ export interface WeddingEvent {
   publicToken: string;
   driveFolderId?: string;
   driveFolderName?: string;
+  driveFolderWebViewLink?: string;
+  driveFolderStatus?: DriveFolderStatus;
+  driveFolderError?: string;
   driveConnectionStatus: DriveConnectionStatus;
   status: EventStatus;
   createdAt: string;
@@ -90,6 +95,8 @@ export interface DriveStatusResponse {
   connected: boolean;
   googleEmail?: string;
   connectedAt?: string;
+  reconnectRequired?: boolean;
+  rootFolderId?: string;
 }
 
 export interface Invitation {

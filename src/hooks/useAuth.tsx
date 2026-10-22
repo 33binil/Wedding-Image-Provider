@@ -50,6 +50,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const verifyLoginOtp = async (payload: VerifyOtpPayload): Promise<User> => {
     const data = await authService.verifyLoginOtp(payload);
+    if (data.token) {
+      localStorage.setItem('wedding_auth_token', data.token);
+    }
     setUser(data.user);
     setAccess(data.access || null);
     return data.user;
@@ -63,6 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await authService.logout();
     } finally {
+      localStorage.removeItem('wedding_auth_token');
       setUser(null);
       setAccess(null);
     }

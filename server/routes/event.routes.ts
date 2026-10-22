@@ -5,6 +5,8 @@ import {
   getEventById,
   updateEvent,
   deleteEvent,
+  retryDriveFolder,
+  getEventDriveFolder,
 } from '../controllers/event.controller.js';
 import {
   requireAuth,
@@ -21,9 +23,11 @@ router.use(requireActivePhotographer);
 // Read routes: allowed for active and expired trial photographers (view-only)
 router.get('/', listEvents);
 router.get('/:id', getEventById);
+router.get('/:id/drive-folder', getEventDriveFolder);
 
 // State-changing routes: blocked if trial has expired
 router.post('/', requireActiveSubscriptionOrTrial, createEvent);
+router.post('/:id/drive-folder/retry', requireActiveSubscriptionOrTrial, retryDriveFolder);
 router.patch('/:id', requireActiveSubscriptionOrTrial, updateEvent);
 router.delete('/:id', requireActiveSubscriptionOrTrial, deleteEvent);
 

@@ -27,11 +27,21 @@ export function createApp(): Express {
     })
   );
 
-  // CORS configuration for cookies
+  // CORS configuration for cookies and custom auth headers
   app.use(
     cors({
-      origin: true,
+      origin: (origin, callback) => {
+        callback(null, origin || true);
+      },
       credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: [
+        'Content-Type',
+        'Authorization',
+        'x-superadmin-token',
+        'Accept',
+        'X-Requested-With',
+      ],
     })
   );
 

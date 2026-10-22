@@ -39,10 +39,11 @@ const verifyOtpSchema = z.object({
 });
 
 function setAuthCookie(res: Response, token: string): void {
+  const isProduction = env.NODE_ENV === 'production' || process.env.VERCEL === '1';
   res.cookie(env.COOKIE_NAME, token, {
     httpOnly: true,
-    secure: env.NODE_ENV === 'production',
-    sameSite: env.NODE_ENV === 'production' ? 'strict' : 'lax',
+    secure: isProduction,
+    sameSite: isProduction ? 'lax' : 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     path: '/',
   });
@@ -389,10 +390,11 @@ export async function logout(
   _req: Request,
   res: Response
 ): Promise<void> {
+  const isProduction = env.NODE_ENV === 'production' || process.env.VERCEL === '1';
   res.clearCookie(env.COOKIE_NAME, {
     httpOnly: true,
-    secure: env.NODE_ENV === 'production',
-    sameSite: env.NODE_ENV === 'production' ? 'strict' : 'lax',
+    secure: isProduction,
+    sameSite: isProduction ? 'lax' : 'lax',
     path: '/',
   });
 

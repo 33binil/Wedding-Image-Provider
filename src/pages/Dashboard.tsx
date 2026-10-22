@@ -1,18 +1,34 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Plus, Search, Calendar, Sparkles, RefreshCw, AlertCircle, HeartHandshake } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  Plus,
+  Search,
+  Calendar,
+  Sparkles,
+  RefreshCw,
+  AlertCircle,
+  HeartHandshake,
+  HardDrive,
+  CheckCircle2,
+  Unlink,
+  ExternalLink,
+  KeyRound,
+  AlertTriangle,
+} from 'lucide-react';
 import { Button } from '../components/ui/Button.js';
 import { EventCard } from '../components/events/EventCard.js';
 import { Modal } from '../components/ui/Modal.js';
 import { QrCodeViewer } from '../components/ui/QrCodeViewer.js';
 import { eventService } from '../services/event.service.js';
-import { WeddingEvent, EventStats } from '../types/index.js';
+import { WeddingEvent, EventStats, DriveStatusResponse } from '../types/index.js';
 import { useToast } from '../hooks/useToast.js';
 import { useAuth } from '../hooks/useAuth.js';
+import { formatDate } from '../lib/utils.js';
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { error: showError } = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { success, error: showError, info } = useToast();
   const { user, access } = useAuth();
 
   const [events, setEvents] = useState<WeddingEvent[]>([]);
@@ -26,6 +42,25 @@ export default function Dashboard() {
     qrCodeDataUrl: string;
   } | null>(null);
   const [loadingQr, setLoadingQr] = useState(false);
+
+  // Drive integration state
+  const [driveStatus, setDriveStatus] = useState<DriveStatusResponse | null>(null);
+  const [loadingDrive, setLoadingDrive] = useState(true);
+  const [connectingDrive, setConnectingDrive] = useState(false);
+  const [disconnectingDrive, setDisconnectingDrive] = useState(false);
+  const [showSetupModal, setShowSetupModal] = useState(false);
+
+  const loadDriveStatus = useCallback(async () => {
+    try {
+      setLoadingDrive(true);
+      const res = await eventService.getDriveStatus();
+      setDriveStatus(res);
+    } catch (err: any) {
+      console.warn('Could not load drive status:', err.message);
+    } finally {
+      setLoadingDrive(false);
+    }
+  }, []);
 
   const loadEvents = useCallback(async () => {
     try {
@@ -42,6 +77,33 @@ export default function Dashboard() {
       setLoading(false);
     }
   }, [statusFilter, searchTerm, showError]);
+
+  // Handle Google Drive OAuth callback redirect params
+  useEffect(() => {
+    const driveParam = searchParams.get('drive');
+    const driveError = searchParams.get('drive_error');
+
+    if (driveParam === 'connected') {
+      success('Google Drive Connected', 'Your Google Drive account is linked. All new wedding albums will be organized automatically.');
+      loadDriveStatus();
+      searchParams.delete('drive');
+      setSearchParams(searchParams, { replace: true });
+    } else if (driveError) {
+      const errorMsg =
+        driveError === 'access_denied'
+          ? 'Google Drive authorization was denied or canceled.'
+          : driveError === 'invalid_state'
+          ? 'Security state verification failed. Please try connecting again.'
+          : 'Could not complete Google Drive authentication.';
+      showError('Google Drive Connection Failed', errorMsg);
+      searchParams.delete('drive_error');
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams, success, showError, loadDriveStatus]);
+
+  useEffect(() => {
+    loadDriveStatus();
+  }, [loadDriveStatus]);
 
   useEffect(() => {
     const debounceTimer = setTimeout(() => {
@@ -63,6 +125,55 @@ export default function Dashboard() {
       showError('Failed to generate QR code', err.message);
     } finally {
       setLoadingQr(false);
+    }
+  };
+
+  const handleConnectDrive = async () => {
+    if (!driveStatus?.configured) {
+      setShowSetupModal(true);
+      return;
+    }
+
+    try {
+      setConnectingDrive(true);
+      const res = await eventService.initiateDriveConnect();
+      if (res.authUrl) {
+        window.location.href = res.authUrl;
+      } else {
+        window.location.href = '/api/integrations/google-drive/connect';
+      }
+    } catch (err: any) {
+      if (
+        err.message?.includes('not yet configured') ||
+        err.message?.includes('GOOGLE_DRIVE_NOT_CONFIGURED')
+      ) {
+        setShowSetupModal(true);
+      } else {
+        showError('Connection Error', err.message || 'Failed to initiate Google Drive authentication.');
+      }
+    } finally {
+      setConnectingDrive(false);
+    }
+  };
+
+  const handleDisconnectDrive = async () => {
+    if (
+      !confirm(
+        'Are you sure you want to disconnect Google Drive? Your existing wedding folders in Google Drive will remain safe, but automatic folder generation will be paused.'
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setDisconnectingDrive(true);
+      await eventService.disconnectDrive();
+      success('Google Drive Disconnected', 'Your Google Drive account has been unlinked.');
+      await loadDriveStatus();
+    } catch (err: any) {
+      showError('Disconnection Failed', err.message);
+    } finally {
+      setDisconnectingDrive(false);
     }
   };
 
@@ -108,7 +219,7 @@ export default function Dashboard() {
             Wedding Registry & Events
           </h1>
           <p className="text-sm text-stone-600 mt-1">
-            Manage ceremonies, monitor Google Drive albums, and distribute guest QR codes.
+            Manage ceremonies, automatically organize Google Drive albums, and distribute guest QR codes.
           </p>
         </div>
         <Button
@@ -120,6 +231,76 @@ export default function Dashboard() {
         >
           Create Wedding
         </Button>
+      </div>
+
+      {/* Google Drive Studio Integration Banner */}
+      <div className="p-4 bg-white border border-stone-200/90 rounded-2xl shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="p-2.5 rounded-xl bg-stone-100 text-stone-700 shrink-0">
+              <HardDrive className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-stone-900">Google Drive Studio Storage</h3>
+                {loadingDrive ? (
+                  <span className="text-[11px] text-stone-400 flex items-center gap-1">
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                  </span>
+                ) : driveStatus?.reconnectRequired ? (
+                  <span className="px-2 py-0.5 text-[10px] font-semibold bg-rose-100 text-rose-800 rounded-md flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" /> Reconnect Required
+                  </span>
+                ) : driveStatus?.connected ? (
+                  <span className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-100 text-emerald-800 rounded-md flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Connected
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 text-[10px] font-semibold bg-stone-100 text-stone-600 rounded-md">
+                    Not Connected
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-stone-600 mt-1">
+                {driveStatus?.connected
+                  ? `Linked: ${driveStatus.googleEmail || 'Google Account'} · Dedicated folder: "Wedding AI Photo Finder"`
+                  : 'Connect your Google Drive to automatically create event photo folders upon wedding creation.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-center">
+            {driveStatus?.connected ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDisconnectDrive}
+                isLoading={disconnectingDrive}
+                className="text-xs text-rose-700 border-rose-200 hover:bg-rose-50"
+                leftIcon={<Unlink className="w-3.5 h-3.5" />}
+              >
+                Disconnect
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleConnectDrive}
+                isLoading={connectingDrive}
+                leftIcon={<HardDrive className="w-3.5 h-3.5" />}
+              >
+                Connect Google Drive
+              </Button>
+            )}
+
+            <button
+              onClick={() => setShowSetupModal(true)}
+              className="text-xs text-stone-500 hover:text-stone-800 underline underline-offset-4 px-2 py-1 cursor-pointer"
+            >
+              Setup Guide
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Overview Stat Cards */}
@@ -140,13 +321,13 @@ export default function Dashboard() {
           </span>
           <div className="flex items-baseline gap-2 mt-2">
             <span className="text-3xl font-serif font-bold text-stone-900">{stats.upcoming}</span>
-            <span className="text-xs text-stone-500">awaiting ceremony</span>
+            <span className="text-xs text-stone-500">ceremonies ahead</span>
           </div>
         </div>
 
         <div className="p-5 bg-white border border-stone-200/80 rounded-2xl shadow-xs">
           <span className="text-xs font-semibold uppercase tracking-wider text-emerald-700 block">
-            Active
+            Active Celebrations
           </span>
           <div className="flex items-baseline gap-2 mt-2">
             <span className="text-3xl font-serif font-bold text-stone-900">{stats.active}</span>
@@ -167,7 +348,6 @@ export default function Dashboard() {
 
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        {/* Interactive Segmented Filter Controls */}
         <div className="flex items-center gap-1 p-1 bg-stone-200/70 rounded-xl overflow-x-auto">
           {[
             { id: 'ALL', label: 'All Weddings' },
@@ -189,7 +369,6 @@ export default function Dashboard() {
           ))}
         </div>
 
-        {/* Search input */}
         <div className="relative sm:w-72">
           <Search className="w-4 h-4 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
@@ -264,6 +443,102 @@ export default function Dashboard() {
             qrCodeDataUrl={selectedEventForQr.qrCodeDataUrl}
           />
         )}
+      </Modal>
+
+      {/* Google Cloud Drive Setup Modal */}
+      <Modal
+        isOpen={showSetupModal}
+        onClose={() => setShowSetupModal(false)}
+        title="Google Drive OAuth Integration Setup"
+        description="Follow these steps to connect your photographer Google Drive with least-privilege permissions."
+        maxWidth="lg"
+      >
+        <div className="space-y-4 text-sm text-stone-700">
+          <div className="p-3 bg-[#FDFBF7] border border-[#E9DFC7] rounded-xl flex items-start gap-3">
+            <KeyRound className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+            <p className="text-xs text-stone-800 leading-relaxed">
+              Google Drive OAuth utilizes offline authorization code flow with AES-256-GCM encrypted refresh tokens and least-privilege scope (<code className="bg-stone-200 px-1 py-0.5 rounded font-mono">drive.file</code>).
+              Once keys are configured, all wedding folders are automatically organized under a dedicated <code className="font-semibold text-stone-900">"Wedding AI Photo Finder"</code> parent directory.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-stone-900 text-white text-xs font-semibold shrink-0">1</span>
+              <div>
+                <h4 className="font-semibold text-stone-900">Google Cloud Console Project</h4>
+                <p className="text-xs text-stone-600 mt-0.5">
+                  Visit <a href="https://console.cloud.google.com" target="_blank" rel="noreferrer" className="text-stone-900 font-semibold underline inline-flex items-center gap-0.5">console.cloud.google.com <ExternalLink className="w-3 h-3" /></a> and create or select your project.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-stone-900 text-white text-xs font-semibold shrink-0">2</span>
+              <div>
+                <h4 className="font-semibold text-stone-900">Enable Google Drive API</h4>
+                <p className="text-xs text-stone-600 mt-0.5">
+                  Go to <strong>APIs & Services &gt; Library</strong>, search for <em>Google Drive API</em>, and click <strong>Enable</strong>.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-stone-900 text-white text-xs font-semibold shrink-0">3</span>
+              <div>
+                <h4 className="font-semibold text-stone-900">OAuth Consent Screen & Scopes</h4>
+                <p className="text-xs text-stone-600 mt-0.5">
+                  Go to <strong>APIs & Services &gt; OAuth consent screen</strong>. Select <em>External</em>. Add scope:
+                  <code className="block mt-1 p-1.5 bg-stone-100 rounded font-mono text-xs select-all text-stone-800">
+                    https://www.googleapis.com/auth/drive.file
+                  </code>
+                  While the app is in "Testing" mode, make sure to add your photographer Gmail address under <strong>Test Users</strong>.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-stone-900 text-white text-xs font-semibold shrink-0">4</span>
+              <div>
+                <h4 className="font-semibold text-stone-900">Create OAuth 2.0 Credentials</h4>
+                <p className="text-xs text-stone-600 mt-0.5">
+                  Go to <strong>APIs & Services &gt; Credentials &gt; Create Credentials &gt; OAuth client ID</strong>.
+                  Select <em>Web application</em>. Add the following <strong>Authorized redirect URIs</strong>:
+                </p>
+                <div className="mt-1.5 space-y-1.5 font-mono text-xs">
+                  <div className="p-2 bg-stone-100 border border-stone-300 rounded text-stone-800 select-all">
+                    {window.location.origin}/api/integrations/google-drive/callback
+                  </div>
+                  <div className="p-2 bg-stone-100 border border-stone-300 rounded text-stone-600 select-all">
+                    http://localhost:3000/api/integrations/google-drive/callback
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-stone-900 text-white text-xs font-semibold shrink-0">5</span>
+              <div>
+                <h4 className="font-semibold text-stone-900">Configure Server Environment (.env)</h4>
+                <p className="text-xs text-stone-600 mt-0.5">
+                  Add the credentials to your server environment:
+                </p>
+                <pre className="mt-1.5 p-2.5 bg-stone-900 text-stone-100 rounded-lg font-mono text-xs overflow-x-auto">
+{`GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET="your-client-secret"
+GOOGLE_REDIRECT_URI="${window.location.origin}/api/integrations/google-drive/callback"
+TOKEN_ENCRYPTION_KEY="your-32-character-random-secret"`}
+                </pre>
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-stone-100 flex justify-end">
+            <Button variant="primary" size="sm" onClick={() => setShowSetupModal(false)}>
+              Got it
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

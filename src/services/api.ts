@@ -8,6 +8,24 @@ export const api = axios.create({
   },
 });
 
+api.interceptors.request.use((config) => {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    const superAdminToken = localStorage.getItem('penta_superadmin_token');
+    const photographerToken = localStorage.getItem('wedding_auth_token');
+
+    // Attach dual-transport authentication headers depending on the route
+    if (config.url && config.url.includes('/superadmin')) {
+      if (superAdminToken) {
+        config.headers.set('Authorization', `Bearer ${superAdminToken}`);
+        config.headers.set('x-superadmin-token', superAdminToken);
+      }
+    } else if (photographerToken && !config.headers.get('Authorization')) {
+      config.headers.set('Authorization', `Bearer ${photographerToken}`);
+    }
+  }
+  return config;
+});
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
