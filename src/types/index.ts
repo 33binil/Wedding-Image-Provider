@@ -86,6 +86,28 @@ export interface PublicEvent {
   status: EventStatus;
 }
 
+export interface MatchedPhoto {
+  folderId: string;
+  fileName: string;
+  webViewLink?: string;
+  thumbnailLink?: string;
+  similarity: number;
+}
+
+export interface IndexingStatus {
+  eventId: string;
+  eventTitle: string;
+  status: 'IDLE' | 'INDEXING' | 'COMPLETED' | 'FAILED';
+  progress: { current: number; total: number };
+  error?: string;
+  indexedCount?: number;
+  totalDiscovered?: number;
+  noFaceImages?: number;
+  failed?: number;
+  facesFound?: number;
+  driveFolderStatus?: string;
+}
+
 export interface DriveStatusResponse {
   configured: boolean;
   connected: boolean;

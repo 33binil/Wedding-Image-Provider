@@ -63,6 +63,13 @@ const envSchema = z.object({
   FIREBASE_CLIENT_EMAIL: z.string().optional().default(''),
   // Private keys are stored with escaped newlines in most secret managers.
   FIREBASE_PRIVATE_KEY: z.string().optional().default(''),
+
+  // Google Generative AI API key for face matching in public guest gallery
+  GEMINI_API_KEY: z.string().optional().default(''),
+
+  // Face recognition configuration
+  FACE_INDEX_MAX_FILES: z.coerce.number().default(100),
+  FACE_MATCH_THRESHOLD: z.coerce.number().default(0.65),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

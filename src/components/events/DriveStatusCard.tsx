@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   HardDrive,
   AlertTriangle,
@@ -8,6 +8,9 @@ import {
   Unlink,
   FolderCheck,
   FolderSync,
+  Loader2,
+  AlertCircle,
+  Eye,
 } from 'lucide-react';
 import { Button } from '../ui/Button.js';
 import { eventService } from '../../services/event.service.js';
@@ -26,6 +29,18 @@ export function DriveStatusCard({ event, onEventUpdated }: DriveStatusCardProps)
   const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [retryingFolder, setRetryingFolder] = useState(false);
+  const [indexing, setIndexing] = useState<{
+    status: 'IDLE' | 'INDEXING' | 'COMPLETED' | 'FAILED';
+    progress: { current: number; total: number };
+    indexedCount: number;
+    totalDiscovered?: number;
+    noFaceImages?: number;
+    failed?: number;
+    facesFound?: number;
+    error?: string;
+  } | null>(null);
+  const [indexingLoading, setIndexingLoading] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { success, error: showError } = useToast();
 
   const fetchDriveStatus = useCallback(async () => {
@@ -110,6 +125,96 @@ export function DriveStatusCard({ event, onEventUpdated }: DriveStatusCardProps)
       setRetryingFolder(false);
     }
   };
+
+  // Indexing state
+  const isFolderReady = Boolean(event.driveFolderId && event.driveFolderStatus === 'CREATED');
+
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+
+  const startPolling = async () => {
+    stopPolling();
+    await refreshIndexingStatus();
+    pollRef.current = setInterval(refreshIndexingStatus, 3000);
+  };
+
+  const refreshIndexingStatus = async () => {
+    try {
+      const status = await eventService.getIndexingStatus(event._id);
+      setIndexing({
+        status: status.status,
+        progress: status.progress,
+        indexedCount: status.indexedCount || 0,
+        totalDiscovered: status.totalDiscovered,
+        noFaceImages: status.noFaceImages,
+        failed: status.failed,
+        facesFound: status.facesFound,
+        error: status.error,
+      });
+      if (status.status === 'COMPLETED' || status.status === 'FAILED') {
+        stopPolling();
+      }
+    } catch {
+      // Ignore polling errors
+    }
+  };
+
+  const handleStartIndexing = async () => {
+    setIndexingLoading(true);
+    try {
+      await eventService.startIndexing(event._id);
+      setIndexing({
+        status: 'INDEXING',
+        progress: { current: 0, total: 0 },
+        indexedCount: 0,
+      });
+      await startPolling();
+    } catch (err: any) {
+      const msg = err.message || 'Failed to start indexing';
+      if (msg.includes('already') || msg.includes('INDEXING_IN_PROGRESS')) {
+        setIndexing({
+          status: 'INDEXING',
+          progress: { current: 0, total: 0 },
+          indexedCount: 0,
+          error: 'Indexing is already in progress for this event.',
+        });
+        await startPolling();
+      } else {
+        setIndexing({
+          status: 'FAILED',
+          progress: { current: 0, total: 0 },
+          indexedCount: 0,
+          error: msg,
+        });
+      }
+    } finally {
+      setIndexingLoading(false);
+    }
+  };
+
+  const handleResetIndexing = async () => {
+    if (!confirm('Reset the face index for this event? This will clear all indexed faces and allow re-indexing from scratch.')) {
+      return;
+    }
+    setIndexingLoading(true);
+    try {
+      await eventService.resetIndexing(event._id);
+      setIndexing(null);
+      stopPolling();
+    } catch (err: any) {
+      setIndexing(prev => prev ? { ...prev, error: err.message || 'Reset failed' } : null);
+    } finally {
+      setIndexingLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => stopPolling();
+  }, []);
 
   const isFolderCreated = Boolean(event.driveFolderId && (event.driveFolderStatus === 'CREATED' || !event.driveFolderStatus));
   const isFolderFailed = event.driveFolderStatus === 'FAILED';
@@ -269,6 +374,102 @@ export function DriveStatusCard({ event, onEventUpdated }: DriveStatusCardProps)
               </div>
             )}
           </div>
+
+          {/* Index Wedding Photos Section */}
+          {isFolderReady && status?.connected && (
+            <div className="p-3.5 bg-[#FAF8F5] border border-[#E8DEC9] rounded-xl space-y-2.5 mt-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Eye className="w-4 h-4 text-[#9C7D4F] shrink-0" />
+                  <span className="text-xs font-semibold text-stone-900">Index Wedding Photos</span>
+                </div>
+                {indexing && indexing.status === 'INDEXING' && (
+                  <Loader2 className="w-3 h-3 text-[#9C7D4F] animate-spin" />
+                )}
+              </div>
+              {indexing ? (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-medium text-stone-600">
+                      {indexing.status === 'COMPLETED' ? 'Indexing Complete' : indexing.status === 'FAILED' ? 'Indexing Failed' : 'Indexing Photos'}
+                    </span>
+                    {indexing.status === 'COMPLETED' && (
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                    )}
+                    {indexing.status === 'FAILED' && (
+                      <AlertCircle className="w-3 h-3 text-rose-600" />
+                    )}
+                  </div>
+                  <div className="w-full bg-stone-100 rounded-full h-1.5">
+                    <div
+                      className="bg-[#9C7D4F] h-1.5 rounded-full transition-all duration-300"
+                      style={{ width: `${indexing.progress.total > 0 ? Math.round((indexing.progress.current / indexing.progress.total) * 100) : 0}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px] text-stone-500">
+                    <span>{indexing.progress.current} / {indexing.progress.total} photos</span>
+                    <span>·</span>
+                    <span>{indexing.indexedCount} indexed</span>
+                    {indexing.totalDiscovered && indexing.totalDiscovered > 0 && (
+                      <>
+                        <span>·</span>
+                        <span>{indexing.totalDiscovered} discovered</span>
+                      </>
+                    )}
+                    {indexing.noFaceImages && indexing.noFaceImages > 0 && (
+                      <>
+                        <span>·</span>
+                        <span className="text-amber-700">{indexing.noFaceImages} no faces</span>
+                      </>
+                    )}
+                    {indexing.failed && indexing.failed > 0 && (
+                      <>
+                        <span>·</span>
+                        <span className="text-rose-700">{indexing.failed} failed</span>
+                      </>
+                    )}
+                    {indexing.error && (
+                      <span className="text-rose-600">{indexing.error}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {indexing.status === 'INDEXING' && (
+                      <Button variant="outline" size="sm" onClick={handleResetIndexing} isLoading={indexingLoading} disabled={indexingLoading}>
+                        Reset
+                      </Button>
+                    )}
+                    {indexing.status === 'FAILED' && (
+                      <>
+                        <Button variant="outline" size="sm" onClick={handleResetIndexing} isLoading={indexingLoading} disabled={indexingLoading}>
+                          Retry
+                        </Button>
+                        <Button variant="primary" size="sm" onClick={handleStartIndexing} isLoading={indexingLoading} disabled={indexingLoading}>
+                          Re-index
+                        </Button>
+                      </>
+                    )}
+                    {indexing.status === 'COMPLETED' && (
+                      <Button variant="outline" size="sm" onClick={handleStartIndexing} isLoading={indexingLoading} disabled={indexingLoading}>
+                        Re-index
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleStartIndexing}
+                  isLoading={indexingLoading}
+                  disabled={indexingLoading}
+                  className="w-full"
+                  leftIcon={<Eye className="w-3.5 h-3.5" />}
+                >
+                  Index Wedding Photos
+                </Button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer Actions */}

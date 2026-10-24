@@ -7,6 +7,7 @@ import eventRoutes from './routes/event.routes.js';
 import publicRoutes from './routes/public.routes.js';
 import driveRoutes from './routes/drive.routes.js';
 import superadminRoutes from './routes/superadmin.routes.js';
+import faceIndexRoutes from './routes/faceIndex.routes.js';
 import { errorHandler, notFoundHandler } from './middleware/error.middleware.js';
 import { generalLimiter } from './middleware/rateLimiter.js';
 
@@ -87,6 +88,7 @@ export function createApp(options: CreateAppOptions = {}): Express {
   app.use('/api/public', publicRoutes);
   app.use('/api/integrations/google-drive', driveRoutes);
   app.use('/api/superadmin', superadminRoutes);
+  app.use('/api', faceIndexRoutes);
 
   // API error handlers.
   //

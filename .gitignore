@@ -6,3 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Face recognition model weights (downloaded at setup, not committed)
+server/models/*-shard*
+server/models/*-weights_manifest.json
